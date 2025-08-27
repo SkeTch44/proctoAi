@@ -1,19 +1,23 @@
-import React from 'react';
-// import {BrowserRouter as Router, Route , Routes} from 'react-router-dom';
-// import DragDrop from "./components/DragDrop";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+} from "react-router-dom";
+import Home from "./pages/Home";
+import AdminDashboard from "./pages/AdminDashboard";
+import StudentDashboard from "./pages/StudentDashboard";
 
 function App() {
   return (
-    <>
-      <div className='text-3xl text-red-700'>
-        <h1>Hello, React!</h1>
-      </div>
-      {/* <Router>
-        <Routes>
-          <Route path="/dragndrop" element={<DragDrop />} />
-        </Routes>
-      </Router> */}
-    </>
+      <Router>
+        <main>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/student" element={<StudentDashboard />} />
+          </Routes>
+        </main>
+      </Router>
   );
 }
 

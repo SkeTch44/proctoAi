@@ -221,4 +221,171 @@ Important: Return ONLY the JSON object, no additional text or formatting.
                                                                                     logger.error(f"Question validation failed for question {question_id}: {e}")
                                                                                     return None
 
-                                                                    # def _generate_fallback_question(self, content: str, num_questions: int, difficulty: str) -> List[Dict]:
+                                                                    def _generate_fallback_question(self, content: str, num_questions: int, difficulty: str) -> List[Dict]:
+                                                                           """Generate basic Questions when Ai is not Available"""
+                                                                           logger.info(f"Generating{count} fallback questions")
+                                                                           questions = []
+                                                                           sentences = self._extract_meaningful_sentences(content)
+                                                                           if not sentences:
+                                                                                  logger.warning("No meaningful found for fallback generation")
+                                                                                  return []
+                                                                           
+                                                                           #genrates different types of questions 
+                                                                           mcq_count = max(1, int(count * 0.6)) # 60% mcq
+                                                                           short_count =  max(1,count(int(count * 0.25))) # 25% short answer
+                                                                           essay_count = max(1, count - mcq_count - short_count) # Remaining for essay
+
+                                                                        #    Generate MCQ questions
+                                                                           for i in range(mcq_count):
+                                                                               if i < len(sentences):
+                                                                                   mcq = self._create_mcq_question(sentences[i], difficulty)
+                                                                                   questions.append(mcq)
+
+                                                                        #    Generate short answer type
+                                                                           for i in range(short_count):
+                                                                               if i < len(sentences):
+                                                                                   short_q = self._create_short_answer_question(sentences[i], difficulty)
+                                                                                   questions.append(short_q)
+
+                                                                        #    Generate essay type
+                                                                           for i in range(essay_count):
+                                                                               if i < len(sentences):
+                                                                                   essay_q = self._create_essay_question(sentences[i], difficulty)
+                                                                                   questions.append(essay_q)
+
+                                                                    def _extract_meaningful_sentences(self, content: str) -> List[str]:
+                                                                       """Extract meaningful sentences from the content for the fallback generation."""
+                                                                       # Implement your sentence extraction logic here
+                                                                       sentences = re.split(r'[.!?]', content)
+                                                                       #     filter meaningful sentences
+                                                                    meaningful_sentences =[]
+                                                                    for sentence in sentences:
+                                                                     sentence = sentence.strip()
+                                                                    #  skip short or meaningless sentences
+                                                                     if len(sentence) > 30 and len(sentence.split()) > 5 and not sentence.lower().startswith(('the', 'a', 'an', 'this', 'that')) and any(c.isalpha() for c in sentence):
+                                                                       meaningful_sentences.append(sentence)
+                                                                    return meaningful_sentences[:20]  # limit to top 20 sentences
+                                                                    def _create_fallback_mcq(self,sentences:str)->dict:
+                                                                          """Create a fallback MCQ from a sentences"""
+                                                                          words = sentences.split()
+                                                                          #find a good word to ask  about (longer words are usally meaningful)
+                                                                          target_words = max(words, key=len) if words else "concept"
+
+                                                                        # create a simple MCQ
+                                                                    question_text = f"According to the content, what is mentioned about '{target_words.lower()}'?" 
+                                                                    return {
+                                                                        "id": question_id,
+                                                                        "type": "mcq",
+                                                                        "question": question_text,
+                                                                        "options": [
+                                                                              f"A) {sentences[:50]}...",
+                                                                              f"B) Alternative interpretation",
+                                                                              f"C) Different concept",
+                                                                              f"D) Unrelated information"
+                                                                        ],
+                                                                        'correct_answer': 'A',
+                                                                        'explanation':f"The content specifically mentionns : {sentences}",
+                                                                        'difficulty': 'difficulty',
+                                                                        'points': 1,
+                                                                        'topic': 'current Analysis',
+                                                                        'bloom_level': 'knowledge'
+                                                                    }
+                                                                    def _create_fallback_short_answer(self,sentences:str,question_id:int,difficulty:str)-> Dict:
+                                                                          """Create a fallback short answer type """
+                                                                          return{
+                                                                                'id': question_id,
+                                                                                 'type': 'short_answer',
+                                                                                 'question':f"Explain the main concept described in '{sentences[:60]}...'",
+                                                                                 'sample_answer':sentences,
+                                                                                 'explanation':"Answer should demonstrate understanding of the key concept mentioned.",
+                                                                                 'difficulty':difficulty,
+                                                                                 'points': 2,
+                                                                                 'topic': 'Content Understanding',
+                                                                                 'bloom_level': 'comprehension'
+                                                                          }
+                                                                    
+
+                                                                    def _create_fallback_essay(self,sentences:str,question_id:int,difficulty:str)-> Dict:
+                                                                          """Create a fallback essay type """
+                                                                          return{
+                                                                                'id': question_id,
+                                                                                 'type': 'essay',
+                                                                                 'question':f"Discuss the main themes and concepts presented in the provided Content '{sentences[:300]}...'",
+                                                                                 'sample_answer':sentences,
+                                                                                 'explanation':"Answer should demonstrate comprehensive understanding and critical analysis of the content.",
+                                                                                 'difficulty':difficulty,
+                                                                                 'points': 5,
+                                                                                 'topic': 'Content Analysis',
+                                                                                 'bloom_level': 'analysis'
+                                                                          }
+                                                                    def  generated_questions_with_config(self,content: str, config: Dict, client_features: Dict, client_feature : Dict=None) -> List[Dict]:
+                                                                        """Generate questions with specific configuration"""
+                                                                        all_questions = []
+                                                                        total_questions = 0
+                                                                        # calculated total question needed
+                                                                        for q_type,settings in config.items():
+                                                                              if not settings.get('enabled', True):
+                                                                                  continue
+                                                                              count = settings.get('count', 0)
+                                                                              difficulty = settings.get('difficulty', 'medium')
+                                                                              if count > 0:
+                                                                                 try :
+                                                                                      type_questions = self.generate_questions(content,q_type, count, difficulty)
+                                                                                      all_questions.extend(type_questions)
+                                                                                 except Exception as e:
+                                                                                      logger.error(f"Failed to generate questions for {q_type} questions: {e}")
+
+                                                                                      for i, question in enumerate(type_questions): question['id'] = i + 1
+                                                                                      logger.info(f"Generated {len(all_questions)} questions with custom configuration ")
+                                                                                      return all_questions
+                                                                                 
+                                                                        def _generate_specific_type_questions(self,content : str , q_type : str , count : int , difficulty: str )-> list(Dict):
+                                                                              """Generate questions of a specific type"""
+                                                                              if self.model:
+                                                                                            #  use ai modle to generate specific question
+                                                                                            prompt = self._create_specific_type_prompt(content, q_type, count, difficulty)
+                                                                                            try:
+                                                                                                  response = self.model.generate_content(prompt)
+                                                                                                  questions_data = self._parse_ai_response(response.text)
+                                                                                                  if questions_data and 'questions=' in questions_data:
+                                                                                                      validated_questions = []
+                                                                                                      for i, question in enumerate(questions_data['questions'][:count]):
+                                                                                                            validated_question = self._validate_and_clean_question(question, i + 1)
+                                                                                                            if validated_question:
+                                                                                                                validated_questions.append(validated_question)
+                                                                                                      return validated_questions
+                                                                                            except Exception as e:
+                                                                                                  logger.error(f"generation failed for {q_type} questions: {e}")
+                                                                                                  return self._generate_fallback_questions(content, q_type, count, difficulty)
+                                                                        def _create_specific_type_prompt(self, content: str, q_type: str, count: int, difficulty: str) -> str:
+                                                                              """Create prompt for specific question type """
+                                                                              type_instructions = {
+            'mcq': f"""
+Generate {count} multiple choice questions with exactly 4 options each.
+Each question must have ONE correct answer and three plausible distractors.
+Format each as: {{"type": "mcq", "question": "...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_answer": "A", ...}}
+            """,
+            'short_answer': f"""
+Generate {count} short answer questions requiring 1-3 sentence responses.
+Include sample answers and grading criteria.
+Format each as: {{"type": "short_answer", "question": "...", "sample_answer": "...", ...}}
+            """,
+            'essay': f"""
+Generate {count} essay questions requiring detailed analysis or discussion.
+Include comprehensive sample answers and evaluation criteria.
+Format each as: {{"type": "essay", "question": "...", "sample_answer": "...", ...}}
+            """,
+            'true_false': f"""
+Generate {count} true/false questions based on factual statements from the content.
+Format each as: {{"type": "true_false", "question": "...", "correct_answer": true, ...}}
+            """,
+            'fill_blanks': f"""
+Generate {count} fill-in-the-blank questions with 1-3 blanks per question.
+Format each as: {{"type": "fill_blanks", "question": "The ___ is ...", "blanks": ["answer1", "answer2"], ...}}
+            """
+        }
+                    instructions = type_instructions.get(q_type, type)
+                    return f"""Based on this content , {instructions} content : {content [:2000]} Difficulty :{difficulty} Return only the valid JSON:
+                    {{"questions": [...]}}"""
+
+                #  END OF THIS ISLAND .Ufffffffff.............

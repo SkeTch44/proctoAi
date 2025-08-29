@@ -1,13 +1,17 @@
-import { useNavigate } from "react-router-dom";
+import React from 'react';
 
 export default function Home() {
-  const navigate = useNavigate();
-
   return (
-    <div>
-      <h1>Welcome to Home Page</h1>
-      <button onClick={() => navigate("/admin")}>Go to Admin Panel</button>
-      <button onClick={() => navigate("/student")}>Go to Student Panel</button>
+    <div className="flex flex-col items-center justify-center h-screen text-center px-4">
+      <h1 className="text-4xl font-bold text-blue-700 dark:text-blue-400 mb-4">
+        Welcome to MySite
+      </h1>
+      <p className="text-lg text-gray-600 dark:text-gray-300 mb-6 max-w-md">
+        Build fast, accessible, and beautiful web experiences.
+      </p>
+      <button className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition">
+        Explore Projects
+      </button>
     </div>
   );
 }

@@ -32,10 +32,8 @@ function App() {
       <div
         className={`min-h-screen transition duration-300 ${
           theme === "dark"
-            ?
-            "bg-gradient-to-r from-[#1E1E1E] via-[#1A2A44] to-[#1E1E1E] text-gray-300"
-            :
-            "bg-gradient-to-r from-[#a18a6b] via-[#B0E0E6] to-[#a18a6b] text-gray-900"
+            ? "bg-[#2A2623]"
+            : "bg-[#FAF7F3]"
         }`}
       >
         <div className="fixed top-4 right-4 z-50">

@@ -1,52 +1,74 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import Home from "./pages/Home";
 import { useState, useEffect, createContext, useContext } from "react";
+import Home from "./pages/Home";
+import LanderPage from "./pages/LanderPage";
 import ThemeToggle from "./components/ThemeToggle";
+import Loader from "./components/Loader";
 
 // Create Theme Context
 const ThemeContext = createContext();
-
 export function useTheme() {
   return useContext(ThemeContext);
 }
 
 function App() {
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "system");
+  const [loading, setLoading] = useState(true);
+  const [shouldAnimate, setShouldAnimate] = useState(true);
+  const [fadeOut, setFadeOut] = useState(false);
 
-  // Apply theme globally to <html>
+  // Simulate loading and control animation
   useEffect(() => {
-    if (
-      theme === "dark" ||
-      (theme === "system" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches)
-    ) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
+    const start = performance.now();
+
+    const timer = setTimeout(() => {
+      const duration = performance.now() - start;
+      setShouldAnimate(duration > 500); // only animate if load took >500ms
+      setFadeOut(true); // trigger fade-out
+      setTimeout(() => setLoading(false), 300); // wait for fade-out to finish
+    }, 1000); // simulate load time
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Apply theme globally
+  useEffect(() => {
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const isDark = theme === "dark" || (theme === "system" && prefersDark);
+
+    document.documentElement.classList.toggle("dark", isDark);
     localStorage.setItem("theme", theme);
   }, [theme]);
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme }}>
-      <div
-        className={`min-h-screen transition duration-300 ${
-          theme === "dark"
-            ? "bg-[#2A2623]"
-            : "bg-[#FAF7F3]"
-        }`}
-      >
-        <div className="fixed top-4 right-4 z-50">
-          <ThemeToggle />
+      {loading ? (
+        <div
+          className={`fixed inset-0 z-50 transition-opacity duration-300 ${
+            fadeOut ? "opacity-0 pointer-events-none" : "opacity-100"
+          }`}
+        >
+          <Loader shouldAnimate={shouldAnimate} />
         </div>
-        <Router>
-          <main className="flex-grow p-6">
-            <Routes>
-              <Route path="/" element={<Home />} />
-            </Routes>
-          </main>
-        </Router>
-      </div>
+      ) : (
+        <div
+          className={`min-h-screen transition duration-300 ${
+            theme === "dark" ? "bg-[#2A2623]" : "bg-[#FAF7F3]"
+          }`}
+        >
+          <div className="fixed top-4 right-4 z-50">
+            <ThemeToggle />
+          </div>
+          <Router>
+            <main className="flex-grow p-6">
+              <Routes>
+                <Route path="/" element={<LanderPage />} />
+                <Route path="/home" element={<Home />} />
+              </Routes>
+            </main>
+          </Router>
+        </div>
+      )}
     </ThemeContext.Provider>
   );
 }

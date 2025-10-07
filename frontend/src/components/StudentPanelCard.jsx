@@ -1,7 +1,9 @@
 import React from "react";
 import { PiStudentBold } from "react-icons/pi";
+import SkeletonLoader from "./Loader";
 
-export default function StudentPanelCard() {
+export default function StudentPanelCard({ loading = false }) {
+  if (loading) return <SkeletonLoader type="card" />;
   return (
     <div className="flex-1 bg-white dark:bg-gray-800 border border-blue-500 dark:border-green-500 rounded-xl shadow-lg p-6 transition-all duration-300 hover:shadow-xl">
       <div className="flex items-center gap-3 mb-4">

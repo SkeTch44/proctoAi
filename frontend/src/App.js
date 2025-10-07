@@ -3,7 +3,7 @@ import { useState, useEffect, createContext, useContext } from "react";
 import Home from "./pages/Home";
 import LanderPage from "./pages/LanderPage";
 import ThemeToggle from "./components/ThemeToggle";
-import Loader from "./components/Loader";
+import SkeletonLoader from "./components/Loader";
 
 // Create Theme Context
 const ThemeContext = createContext();
@@ -14,16 +14,12 @@ export function useTheme() {
 function App() {
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "system");
   const [loading, setLoading] = useState(true);
-  const [shouldAnimate, setShouldAnimate] = useState(true);
   const [fadeOut, setFadeOut] = useState(false);
 
   // Simulate loading and control animation
   useEffect(() => {
-    const start = performance.now();
 
     const timer = setTimeout(() => {
-      const duration = performance.now() - start;
-      setShouldAnimate(duration > 500); // only animate if load took >500ms
       setFadeOut(true); // trigger fade-out
       setTimeout(() => setLoading(false), 300); // wait for fade-out to finish
     }, 1000); // simulate load time
@@ -48,7 +44,7 @@ function App() {
             fadeOut ? "opacity-0 pointer-events-none" : "opacity-100"
           }`}
         >
-          <Loader shouldAnimate={shouldAnimate} />
+          <SkeletonLoader />
         </div>
       ) : (
         <div

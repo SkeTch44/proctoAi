@@ -8,6 +8,7 @@ import {
 } from "react-icons/fa";
 import StudentPanelCard from "../components/StudentPanelCard";
 import AdminPanelCard from "../components/AdminPanelCard";
+import SkeletonLoader from "../components/Loader";
 
 export default function Home() {
   return (
@@ -57,10 +58,19 @@ export default function Home() {
       </main>
       {/* Panel Cards Section */}
       <section className="w-full max-w-6xl mx-auto px-6 py-12">
-        <div className="flex flex-col md:flex-row gap-8 justify-center items-stretch">
-          <StudentPanelCard />
-          <AdminPanelCard />
-        </div>
+        {/* Example: Show skeleton loader for cards if loading */}
+        {/* Replace 'false' with your loading state */}
+        {false ? (
+          <div className="flex flex-col md:flex-row gap-8 justify-center items-stretch">
+            <SkeletonLoader type="card" />
+            <SkeletonLoader type="card" />
+          </div>
+        ) : (
+          <div className="flex flex-col md:flex-row gap-8 justify-center items-stretch">
+            <StudentPanelCard />
+            <AdminPanelCard />
+          </div>
+        )}
       </section>
     </section>
   );

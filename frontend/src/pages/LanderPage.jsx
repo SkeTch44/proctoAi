@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import SkeletonLoader from "../components/Loader";
 
 export default function LanderPage() {
   const navigate = useNavigate();
@@ -20,7 +21,7 @@ export default function LanderPage() {
             Secure and scalable online exam platform with advanced anti-cheating
             measures and automated grading.
           </p>
-          <div className="inline-block bg-gradient-to-r from-purple-700 via-teal-500 to-white dark:from-green-500 dark:via-blue-500 dark:to-green-400 p-[3px] rounded-xl">
+          <div className="inline-block bg-gradient-to-r from-purple-700 via-teal-500 to-white dark:from-[#7384d8] dark:via-purple-500 dark:to-teal-100 p-[3px] rounded-xl">
             <button
               onClick={() => navigate("/home")}
               className="px-8 py-3 rounded-xl text-lg font-semibold shadow-lg transition-all duration-200
@@ -34,11 +35,16 @@ export default function LanderPage() {
 
         {/* Monitor Illustration */}
         <div className="flex justify-center items-center w-full max-w-md mx-auto">
-          <img
-            src="/Desktop-proctoAI.png"
-            alt="ProctoAI Desktop"
-            className=" w-full h-auto object-contain bg-transparent rounded-xl shadow-2xl shadow-teal-200 dark:shadow-blue-900 p-2"
-          />
+          {/* Example: Show skeleton loader for illustration if loading */}
+          {false ? (
+            <SkeletonLoader />
+          ) : (
+            <img
+              src="/Desktop-proctoAI.png"
+              alt="ProctoAI Desktop"
+              className=" w-full h-auto object-contain bg-transparent rounded-xl monitor-shadow dark:monitor-shadow-dark p-2"
+            />
+          )}
         </div>
       </main>
     </section>

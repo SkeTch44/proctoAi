@@ -3,6 +3,18 @@
 <!-- The details about the app, getting all the update and everything that is responsible in the frontend of the file structure. -->
 # Getting Started with Create React App
 
+Home page - page that gives the functionality to reach the tab or admin and student with seperate login and different functionality. A simple and sleek design.
+
+App js - the file that handles the route and the theme of the website with the props and a themetoddle button is made, a click and change in the theme occurs. 
+
+tailwind.config.js - a file that handles the basic rules of tailwind, like in extend option I gave an option for the dark class to give the functionality to apply for the dark theme, an animation for the loader.
+
+Intro/ Landing page - the route is the most basic of the webpage, a start button to route to the home page, very simple and sleek design.
+
+About page - to be made.
+
+Loading page - skleton loading seems to be good for me and according to me.
+
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
 ## Available Scripts

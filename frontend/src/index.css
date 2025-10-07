@@ -24,3 +24,23 @@ code {
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* .monitor-shadow{
+  filter: drop-shadow(1px 1px 5px rgb(74, 62, 109))
+}
+
+.monitor-shadow-dark{
+ filter: drop-shadow(1px 1px 5px rgb(129, 187, 235))
+} */
+
+.monitor-shadow {
+  /* Light theme: subtle depth, slight purple-tint for creativity */
+  filter: drop-shadow(0px 6px 28px rgba(109, 40, 217, 0.13)) 
+          drop-shadow(0px 2px 8px rgba(0,0,0,0.08));
+}
+
+.monitor-shadow-dark {
+  /* Dark theme: deeper, soft black shadow for premium feel */
+  filter: drop-shadow(0px 8px 32px rgba(0,0,0,0.55)) 
+          drop-shadow(0px 2px 8px rgba(16,24,39,0.32));
+}

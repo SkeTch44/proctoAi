@@ -1,8 +1,15 @@
 import React from "react";
 import { MdAdminPanelSettings } from "react-icons/md";
 import SkeletonLoader from "./Loader";
+import { useNavigate } from "react-router-dom";
 
 export default function AdminPanelCard({ loading = false }) {
+  const navigate = useNavigate();
+
+  const handleClick = () => {
+    navigate("/AdminDashboard");
+  };
+
   if (loading) return <SkeletonLoader type="card" />;
   return (
     <div className="flex-1 bg-white dark:bg-gray-800 border border-blue-500 dark:border-green-500 rounded-xl shadow-lg p-6 transition-all duration-300 hover:shadow-xl">
@@ -19,7 +26,10 @@ export default function AdminPanelCard({ loading = false }) {
         intelligent proctoring tools.
       </p>
 
-      <div className="mt-4 p-4 rounded-lg border border-purple-500 dark:border-green-500 bg-gradient-to-r from-purple-300 via-purple-100 to-white dark:bg-gradient-to-r dark:from-gray-700 dark:via-gray-800 dark:to-gray-900 text-sm text-purple-900 dark:text-green-300 font-medium shadow-sm">
+      <div
+        onClick={handleClick}
+        className="mt-4 p-4 rounded-lg border border-purple-500 dark:border-green-500 bg-gradient-to-r from-purple-300 via-purple-100 to-white dark:bg-gradient-to-r dark:from-gray-700 dark:via-gray-800 dark:to-gray-900 text-sm text-purple-900 dark:text-green-300 font-medium shadow-sm"
+      >
         Click the tab above to log in as an admin.
       </div>
     </div>

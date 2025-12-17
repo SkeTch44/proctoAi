@@ -4,6 +4,7 @@ import Home from "./pages/Home";
 import LanderPage from "./pages/LanderPage";
 import ThemeToggle from "./components/ThemeToggle";
 import SkeletonLoader from "./components/Loader";
+import AdminDashboard from "./pages/AdminDashboard";
 
 // Create Theme Context
 const ThemeContext = createContext();
@@ -60,6 +61,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<LanderPage />} />
                 <Route path="/home" element={<Home />} />
+                <Route path="/AdminDashboard" element = {<AdminDashboard/>}/>
               </Routes>
             </main>
           </Router>

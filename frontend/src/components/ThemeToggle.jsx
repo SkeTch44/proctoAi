@@ -10,7 +10,7 @@ export default function ThemeToggle() {
       title="Toggle theme"
       onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
     >
-      {theme === "dark" ? <FaToggleOn /> : <FaToggleOff />}
+      {theme === "dark" ? <FaToggleOn className="text-[#bcbbb0]"/> : <FaToggleOff />}
     </button>
   );
 }

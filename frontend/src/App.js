@@ -1,12 +1,28 @@
+// src/App.jsx
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { useState, useEffect, createContext, useContext } from "react";
 import Home from "./pages/Home";
 import LanderPage from "./pages/LanderPage";
 import ThemeToggle from "./components/ThemeToggle";
 import SkeletonLoader from "./components/Loader";
-import AdminDashboard from "./pages/AdminDashboard";
+import Layout from "./pages/AdminPages/Layout";
+import AdminRoute from "./routes/AdminRoute";
 
-// Create Theme Context
+import LogIn from "./pages/Login";
+import NotFound from "./pages/NotFound";
+import Register from "./pages/Register";
+// Admin pages
+import DragNdrop from "./pages/AdminPages/DragNdrop";
+import AIQuestionGenerator from "./pages/AdminPages/AIQuestionGenerator";
+import TestCreator from "./pages/AdminPages/TestCreator";
+import LiveMonitoring from "./pages/AdminPages/LiveMonitoring";
+import ProctoringLogs from "./pages/AdminPages/ProctoringLogs";
+import Analytics from "./pages/AdminPages/Analytics";
+import Reports from "./pages/AdminPages/Reports";
+import AdminDashboard from "./pages/AdminPages/AdminDashboard";
+import StudentDashboard from "./pages/StudentPages/StudentDashboard";
+import StudentRoute from "./routes/StudentRoute";
+
 const ThemeContext = createContext();
 export function useTheme() {
   return useContext(ThemeContext);
@@ -19,18 +35,18 @@ function App() {
 
   // Simulate loading and control animation
   useEffect(() => {
-
     const timer = setTimeout(() => {
-      setFadeOut(true); // trigger fade-out
-      setTimeout(() => setLoading(false), 300); // wait for fade-out to finish
-    }, 1000); // simulate load time
-
+      setFadeOut(true);
+      setTimeout(() => setLoading(false), 300);
+    }, 1000);
     return () => clearTimeout(timer);
   }, []);
 
   // Apply theme globally
   useEffect(() => {
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const prefersDark = window.matchMedia(
+      "(prefers-color-scheme: dark)"
+    ).matches;
     const isDark = theme === "dark" || (theme === "system" && prefersDark);
 
     document.documentElement.classList.toggle("dark", isDark);
@@ -56,14 +72,47 @@ function App() {
           <div className="fixed top-4 right-4 z-50">
             <ThemeToggle />
           </div>
+
           <Router>
-            <main className="flex-grow p-6">
-              <Routes>
-                <Route path="/" element={<LanderPage />} />
-                <Route path="/home" element={<Home />} />
-                <Route path="/AdminDashboard" element = {<AdminDashboard/>}/>
-              </Routes>
-            </main>
+            <Routes>
+              {/* Public pages */}
+              <Route path="/" element={<LanderPage />} />
+              <Route path="/home" element={<Home />} />
+              <Route path="/login" element={<LogIn />} />
+              <Route path="/register" element={<Register />} />
+
+              {/* Admin dashboard layout with sidebar + nested pages */}
+              <Route
+                path="/AdminDashboard"
+                element={
+                  <AdminRoute>
+                    <Layout />
+                  </AdminRoute>
+                }
+              >
+                <Route index element={<AdminDashboard />} />
+                <Route path="documentUpload" element={<DragNdrop />} />
+                <Route path="analyzer" element={<AIQuestionGenerator />} />
+                <Route path="test-creator" element={<TestCreator />} />
+                <Route path="admin-monitoring" element={<LiveMonitoring />} />
+                <Route path="admin-logs" element={<ProctoringLogs />} />
+                <Route path="admin-analytics" element={<Analytics />} />
+                <Route path="compiled-reports" element={<Reports />} />
+              </Route>
+
+              {/* Student dashboard (protected) */}
+              <Route
+                path="/student/dashboard"
+                element={
+                  <StudentRoute>
+                    <StudentDashboard />
+                  </StudentRoute>
+                }
+              />
+
+              {/* Fallback */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
           </Router>
         </div>
       )}

@@ -40,7 +40,7 @@ export default function Home() {
 
         {/* Monitor Illustration */}
         <section className="w-full max-w-sm">
-          <div className="bg-white dark:bg-gray-800 border-2 border-teal-500 dark:border-green-500 rounded-lg p-6 shadow-md flex flex-col items-center">
+          <div className="bg-white dark:bg-[#1D1A17] border-2 border-teal-500 dark:border-green-500 rounded-lg p-6 shadow-md flex flex-col items-center">
             {/* Centered User Icon */}
             <div className="flex justify-center items-center h-24 w-24 bg-teal-500 dark:bg-green-500 rounded-full mb-6">
               <FaUser className="text-white text-4xl" />

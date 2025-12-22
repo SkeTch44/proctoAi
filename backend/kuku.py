@@ -6,12 +6,13 @@ import jwt
 from config import Config
 from db.database import DatabaseManager
 from werkzeug.security import generate_password_hash
+from flask_cors import CORS
 
 
 app = Flask(__name__)
 app.config.from_object(Config)
-
-db = DatabaseManager("sqlite:///exam_platform.db")
+CORS(app, origins=app.config.get("CORS_ORIGINS", ["http://localhost:3000"]))
+db = DatabaseManager(app.config.get("DATABASE_URL", "sqlite:///exam_platform.db"))
 db.init_database()
 
 
@@ -100,18 +101,38 @@ def register():
     username = data.get("username")
     email = data.get("email")
     password = data.get("password")
+    role = data.get("role", "student")
 
     if not username or not email or not password:
         return jsonify({"message": "All fields required"}), 400
 
+    # Validate role
+    if role not in ("student", "teacher", "admin"):
+        return jsonify({"message": "Invalid role provided"}), 400
+
+    # Check which field (if any) already exists to give precise feedback
+    conn = db.get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+        if cursor.fetchone():
+            return jsonify({"message": "Username already exists"}), 400
+
+        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+        if cursor.fetchone():
+            return jsonify({"message": "Email already exists"}), 400
+
+    finally:
+        conn.close()
+
     password_hash = generate_password_hash(password)
 
-    user_id = db.create_user(username, email, password_hash)
+    user_id = db.create_user(username, email, password_hash, role)
 
     if not user_id:
-        return jsonify({"message": "User already exists"}), 400
+        return jsonify({"message": "Failed to create user"}), 500
 
-    return jsonify({"message": "User registered successfully"}), 201
+    return jsonify({"message": "User registered successfully", "user_id": user_id}), 201
 
 
 # -----------------------

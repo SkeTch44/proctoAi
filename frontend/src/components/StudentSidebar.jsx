@@ -22,13 +22,13 @@ export default function StudentSidebar({ children }) {
   return (
     <div className="flex min-h-screen bg-[#F3F4F6] text-gray-900 dark:bg-[#011627] dark:text-gray-100">
       <aside
-        className={`
-  w-64 h-screen transform transition-transform duration-200 border-2 rounded-xl
+        className={
+          `w-64 h-screen transform transition-transform duration-200 border-2 rounded-xl
   bg-white border-[#3B82F6]/30 relative
   dark:bg-[#1D1A17] dark:border-[#3B82F6]/60 dark:rounded-2xl
-  ${isOpen ? "translate-x-0" : "-translate-x-full"}
-  md:translate-x-0 fixed md:static inset-y-0 left-0 z-40
-`}
+  ${isOpen ? "translate-x-0 block" : "-translate-x-full hidden md:block"}
+  md:translate-x-0 fixed md:static inset-y-0 left-0 z-40`
+        }
       >
         <div className="h-28 flex items-center justify-between px-4 border-b border-[#3B82F6]/20 dark:border-[#3B82F6]/40 rounded-t-xl dark:rounded-t-2xl">
           <div className="flex flex-col items-start gap-1 flex-1">
@@ -53,6 +53,20 @@ export default function StudentSidebar({ children }) {
               Logout
             </button>
           </div>
+          {/* Close icon button */}
+          <button
+            className="
+              md:hidden p-1.5 rounded-xl border-2 border-transparent
+              text-gray-500 hover:text-gray-900 hover:bg-gray-100 hover:border-gray-300
+              dark:text-gray-400 dark:hover:text-white dark:hover:bg-[#013243] 
+              dark:hover:border-[#3B82F6]/60
+              transition-all shadow-sm hover:shadow-md
+            "
+            onClick={() => setIsOpen(false)}
+            title="Close menu"
+          >
+            <PiX className="h-4 w-4" />
+          </button>
         </div>
 
         <nav className="mt-4 px-2 flex-1 overflow-y-auto">
@@ -90,7 +104,7 @@ export default function StudentSidebar({ children }) {
         </div>
       </aside>
 
-      <div className="flex-1">
+      <div className="flex-1 w-full">
         {!isOpen && (
           <button
             className="md:hidden fixed top-4 left-4 z-50 p-2.5 rounded-2xl text-gray-700 bg-white shadow-xl border-2 border-gray-200 hover:text-[#6D28D9] hover:bg-[#EEF2FF] hover:shadow-2xl hover:scale-105 hover:border-[#3B82F6]/60 dark:text-gray-300 dark:bg-[#011627] dark:border-[#3B82F6]/60 dark:hover:text-[#0fc1a0] dark:hover:bg-[#013243] dark:hover:border-[#3B82F6]/80 transition-all duration-200 border-[#3B82F6]/30"

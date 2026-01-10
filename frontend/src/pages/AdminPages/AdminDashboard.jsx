@@ -1,5 +1,6 @@
 import React from "react";
 import { getUser, logout } from "../../utils/authStorage";
+import StatusDoodle from "../../components/StatusDoodle";
 import { useNavigate } from "react-router-dom";
 
 export default function AdminDashboard() {
@@ -41,6 +42,8 @@ export default function AdminDashboard() {
           <p className="text-2xl font-bold mt-2">—</p>
         </div>
       </section>
+
+        <StatusDoodle />
 
       <section className="mt-8">
         <div className="p-6 bg-white dark:bg-[#0f1724] rounded-xl shadow border border-[#E5E7EB] dark:border-[#3B82F6]/40">

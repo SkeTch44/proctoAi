@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 import jwt
@@ -6,13 +7,13 @@ import jwt
 from config import Config
 from db.database import DatabaseManager
 from werkzeug.security import generate_password_hash
-from flask_cors import CORS
 
 
 app = Flask(__name__)
+CORS(app)
 app.config.from_object(Config)
-CORS(app, origins=app.config.get("CORS_ORIGINS", ["http://localhost:3000"]))
-db = DatabaseManager(app.config.get("DATABASE_URL", "sqlite:///exam_platform.db"))
+
+db = DatabaseManager("sqlite:///exam_platform.db")
 db.init_database()
 
 
@@ -73,6 +74,10 @@ def role_required(required_role):
 def login():
     data = request.get_json()
 
+    if not data:
+        return jsonify({"message": "Invalid JSON"}), 400
+
+
     user = db.authenticate_user(
         data.get("username"),
         data.get("password")
@@ -97,42 +102,25 @@ def login():
 @app.route("/api/register", methods=["POST"])
 def register():
     data = request.get_json()
+    if not data:
+        return jsonify({"message": "Invalid JSON"}), 400
+
 
     username = data.get("username")
     email = data.get("email")
     password = data.get("password")
-    role = data.get("role", "student")
 
     if not username or not email or not password:
         return jsonify({"message": "All fields required"}), 400
 
-    # Validate role
-    if role not in ("student", "teacher", "admin"):
-        return jsonify({"message": "Invalid role provided"}), 400
-
-    # Check which field (if any) already exists to give precise feedback
-    conn = db.get_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
-        if cursor.fetchone():
-            return jsonify({"message": "Username already exists"}), 400
-
-        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
-        if cursor.fetchone():
-            return jsonify({"message": "Email already exists"}), 400
-
-    finally:
-        conn.close()
-
     password_hash = generate_password_hash(password)
 
-    user_id = db.create_user(username, email, password_hash, role)
+    user_id = db.create_user(username, email, password_hash)
 
     if not user_id:
-        return jsonify({"message": "Failed to create user"}), 500
+        return jsonify({"message": "User already exists"}), 400
 
-    return jsonify({"message": "User registered successfully", "user_id": user_id}), 201
+    return jsonify({"message": "User registered successfully"}), 201
 
 
 # -----------------------
@@ -160,9 +148,32 @@ def student_dashboard(user_id, role):
         "exams": []
     })
 
+# -----------------------
+# EXAM ROOM ROUTE
+# -----------------------
+
+@app.route('/api/exams/<exam_id>', methods=['GET'])
+@token_required
+def get_exam(user_id, user_role):
+    conn = sqlite3.connect('exam_platform.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM exams WHERE id = ? AND created_by != ?', (exam_id, user_id))
+    exam = cursor.fetchone()
+    conn.close()
+    
+    if not exam:
+        return jsonify({'message': 'Exam not found'}), 404
+    
+    return jsonify({
+        'id': exam[0],
+        'title': exam[1],
+        'questions': json.loads(exam[3]),
+        'duration': exam[4]
+    })
+
 
 # -----------------------
 # RUN
 # -----------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+ app.run(debug=True)

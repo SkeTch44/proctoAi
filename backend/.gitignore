@@ -1,5 +1,5 @@
-# Python
-_pycache_/
+#python
+*_pycache_/
 *.py[cod]
 *$py.class
 *.so
@@ -94,3 +94,32 @@ docs/_build/
 .env.production
 config.json
 secrets.json
+
+# Virtual environments
+.venv/
+venv/
+env/
+backend/.venv/
+backend/venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/

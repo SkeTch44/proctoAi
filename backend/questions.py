@@ -10,7 +10,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-class QuetstionGenerator:
+class QuestionGenerator:
     """ MAIN AI - Powered question generation system using gemini"""
     def __init__(self):
         self.model = None

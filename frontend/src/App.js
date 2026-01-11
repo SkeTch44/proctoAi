@@ -7,7 +7,8 @@ import ThemeToggle from "./components/ThemeToggle";
 import SkeletonLoader from "./components/Loader";
 import Layout from "./pages/AdminPages/Layout";
 import AdminRoute from "./routes/AdminRoute";
-import Login from "./pages/Login";
+
+import LogIn from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import Register from "./pages/Register";
 // Admin pages
@@ -21,15 +22,13 @@ import Reports from "./pages/AdminPages/Reports";
 import AdminDashboard from "./pages/AdminPages/AdminDashboard";
 import StudentDashboard from "./pages/StudentPages/StudentDashboard";
 import StudentRoute from "./routes/StudentRoute";
-// Student Pages
+import StudentLayout from "./pages/StudentPages/StudentLayout"; // Create this file
 import StartExam from "./pages/StudentPages/StartExam";
 import Results from "./pages/StudentPages/Results";
 import Profile from "./pages/StudentPages/Profile";
 import Support from "./pages/StudentPages/Support";
-import ExamRoom from './pages/StudentPages/ExamRoom';
-import About from "./pages/About";
-
-
+import ExamRoom from "./pages/StudentPages/ExamRoom";
+import NotificationBar from "./components/NotificationBar";
 const ThemeContext = createContext();
 export function useTheme() {
   return useContext(ThemeContext);
@@ -79,15 +78,17 @@ function App() {
           <div className="fixed top-4 right-4 z-50">
             <ThemeToggle />
           </div>
+          <div className="fixed top-6 z-50">
+            <NotificationBar/>
+          </div>
 
           <Router>
             <Routes>
               {/* Public pages */}
               <Route path="/" element={<LanderPage />} />
               <Route path="/home" element={<Home />} />
-              <Route path="/login" element={<Login />} />
+              <Route path="/login" element={<LogIn />} />
               <Route path="/register" element={<Register />} />
-              <Route path="/about" element={<About/>}/>
 
               {/* Admin dashboard layout with sidebar + nested pages */}
               <Route
@@ -108,24 +109,24 @@ function App() {
                 <Route path="compiled-reports" element={<Reports />} />
               </Route>
 
-              {/* Student dashboard (protected) */}
               <Route
-                path="/student/dashboard"
+                path="/student"
                 element={
                   <StudentRoute>
-                    <StudentDashboard />
+                    <StudentLayout />
                   </StudentRoute>
                 }
-              />
-
-              <Route path="/student/start" element={<StudentRoute><StartExam /></StudentRoute>} />
-              <Route path="/student/results" element={<StudentRoute><Results /></StudentRoute>} />
-              <Route path="/student/profile" element={<StudentRoute><Profile /></StudentRoute>} />
-              <Route path="/student/support" element={<StudentRoute><Support /></StudentRoute>} />
-              {/* <Route path="/student/Exam-room" element={<StudentRoute><ExamRoom /></StudentRoute>} /> */}
+              >
+                <Route index element={<StudentDashboard />} />
+                <Route path="dashboard" element={<StudentDashboard />} />
+                <Route path="start-exam" element={<StartExam />} />
+                <Route path="results" element={<Results />} />
+                <Route path="profile" element={<Profile />} />
+                <Route path="support" element={<Support />} />
+                <Route path="exam-room/:examId" element={<ExamRoom/>}/>
+              </Route>
 
               {/* Fallback */}
-              <Route path="/student/Exam-room" element = {<ExamRoom/>}/>
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Router>

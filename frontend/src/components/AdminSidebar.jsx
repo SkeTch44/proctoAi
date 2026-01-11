@@ -42,7 +42,10 @@ export default function AdminSidebar() {
               </span>
             </div>
             <div className="text-xs text-gray-600 dark:text-gray-300">
-              Signed in as <span className="font-semibold">{user?.username || user?.name || "Admin"}</span>
+              Signed in as{" "}
+              <span className="font-semibold">
+                {user?.username || user?.name || "Admin"}
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -75,7 +78,10 @@ export default function AdminSidebar() {
 
         {/* Nav */}
         <nav className="mt-4 px-2 flex-1 overflow-y-auto">
-          <NavLink to="/AdminDashboard" className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-4 inline-block">
+          <NavLink
+            to="/AdminDashboard"
+            className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-4 inline-block"
+          >
             Admin panel
           </NavLink>
           <ul className="space-y-1">
@@ -129,10 +135,9 @@ export default function AdminSidebar() {
             <FaCaretRight className="h-5 w-5" />
           </button>
         )}
-<main className="p-4 md:p-8 lg:p-12 bg-white dark:bg-[#1D1A17] min-h-screen">
-  <Outlet />
-</main>
-
+        <main className="p-4 md:p-8 lg:p-12 bg-white dark:bg-[#1D1A17] min-h-screen">
+          <Outlet />
+        </main>
       </div>
     </div>
   );

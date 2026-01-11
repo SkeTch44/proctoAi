@@ -4,7 +4,7 @@ import { useTheme } from "../App";
 
 export default function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  return (
+  return (<>
     <button
       className="text-2xl p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition"
       title="Toggle theme"
@@ -12,5 +12,6 @@ export default function ThemeToggle() {
     >
       {theme === "dark" ? <FaToggleOn className="text-[#bcbbb0]"/> : <FaToggleOff />}
     </button>
-  );
+      </>
+    );
 }

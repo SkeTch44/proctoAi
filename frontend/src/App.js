@@ -22,7 +22,13 @@ import Reports from "./pages/AdminPages/Reports";
 import AdminDashboard from "./pages/AdminPages/AdminDashboard";
 import StudentDashboard from "./pages/StudentPages/StudentDashboard";
 import StudentRoute from "./routes/StudentRoute";
-
+import StudentLayout from "./pages/StudentPages/StudentLayout"; // Create this file
+import StartExam from "./pages/StudentPages/StartExam";
+import Results from "./pages/StudentPages/Results";
+import Profile from "./pages/StudentPages/Profile";
+import Support from "./pages/StudentPages/Support";
+import ExamRoom from "./pages/StudentPages/ExamRoom";
+import NotificationBar from "./components/NotificationBar";
 const ThemeContext = createContext();
 export function useTheme() {
   return useContext(ThemeContext);
@@ -72,6 +78,9 @@ function App() {
           <div className="fixed top-4 right-4 z-50">
             <ThemeToggle />
           </div>
+          <div className="fixed top-6 z-50">
+            <NotificationBar/>
+          </div>
 
           <Router>
             <Routes>
@@ -100,15 +109,22 @@ function App() {
                 <Route path="compiled-reports" element={<Reports />} />
               </Route>
 
-              {/* Student dashboard (protected) */}
               <Route
-                path="/student/dashboard"
+                path="/student"
                 element={
                   <StudentRoute>
-                    <StudentDashboard />
+                    <StudentLayout />
                   </StudentRoute>
                 }
-              />
+              >
+                <Route index element={<StudentDashboard />} />
+                <Route path="dashboard" element={<StudentDashboard />} />
+                <Route path="start-exam" element={<StartExam />} />
+                <Route path="results" element={<Results />} />
+                <Route path="profile" element={<Profile />} />
+                <Route path="support" element={<Support />} />
+                <Route path="exam-room/:examId" element={<ExamRoom/>}/>
+              </Route>
 
               {/* Fallback */}
               <Route path="*" element={<NotFound />} />

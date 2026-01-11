@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 import jwt
@@ -9,6 +10,7 @@ from werkzeug.security import generate_password_hash
 
 
 app = Flask(__name__)
+CORS(app)
 app.config.from_object(Config)
 
 db = DatabaseManager("sqlite:///exam_platform.db")
@@ -72,6 +74,10 @@ def role_required(required_role):
 def login():
     data = request.get_json()
 
+    if not data:
+        return jsonify({"message": "Invalid JSON"}), 400
+
+
     user = db.authenticate_user(
         data.get("username"),
         data.get("password")
@@ -96,6 +102,9 @@ def login():
 @app.route("/api/register", methods=["POST"])
 def register():
     data = request.get_json()
+    if not data:
+        return jsonify({"message": "Invalid JSON"}), 400
+
 
     username = data.get("username")
     email = data.get("email")
@@ -137,6 +146,29 @@ def student_dashboard(user_id, role):
     return jsonify({
         "message": "Welcome Student",
         "exams": []
+    })
+
+# -----------------------
+# EXAM ROOM ROUTE
+# -----------------------
+
+@app.route('/api/exams/<exam_id>', methods=['GET'])
+@token_required
+def get_exam(user_id, user_role):
+    conn = sqlite3.connect('exam_platform.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM exams WHERE id = ? AND created_by != ?', (exam_id, user_id))
+    exam = cursor.fetchone()
+    conn.close()
+    
+    if not exam:
+        return jsonify({'message': 'Exam not found'}), 404
+    
+    return jsonify({
+        'id': exam[0],
+        'title': exam[1],
+        'questions': json.loads(exam[3]),
+        'duration': exam[4]
     })
 
 

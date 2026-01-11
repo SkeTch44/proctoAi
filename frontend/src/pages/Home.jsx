@@ -1,5 +1,4 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
 import {
   FaUser,
   FaMicrophone,
@@ -12,8 +11,6 @@ import AdminPanelCard from "../components/AdminPanelCard";
 import SkeletonLoader from "../components/Loader";
 
 export default function Home() {
-  const navigate = useNavigate();
-
   return (
     <section className="flex flex-col items-center justify-center min-h-[80vh] px-4 text-center">
       {/* Hero Section */}
@@ -31,7 +28,7 @@ export default function Home() {
             tools and a delightful dark mode.
           </p>
           <div className="inline-block bg-gradient-to-r from-purple-700 via-teal-500 to-white dark:from-green-500 dark:via-blue-500 dark:to-green-400 p-[3px] rounded-xl">
-            <button  onClick={() => navigate("/about")}
+            <button
               className="px-8 py-3 rounded-xl text-lg font-semibold shadow-lg transition-all duration-200
                bg-blue-500 hover:bg-blue-600 text-white
                dark:bg-blue-700 dark:hover:bg-blue-500 dark:text-gray-100"

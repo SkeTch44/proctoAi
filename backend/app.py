@@ -15,7 +15,7 @@ from grading import GradingEngine
 from models.cheat_detector import CheatDetector
 from utils.pdf_parser import parse_pdf
 from utils.docx_parser import parse_docx
-# from utils.report_export import generate_exam_report
+from utils.report_export import generate_exam_report
 from config import Config
 
 app = Flask(__name__)
@@ -98,6 +98,7 @@ def token_required(f):
         token = request.headers.get('Authorization')
         if not token:
             return jsonify({'message': 'Token is missing'}), 401
+        from jwt import ExpiredSignatureError, InvalidTokenError
         
         try:
             token = token.replace('Bearer ', '')

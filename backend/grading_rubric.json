@@ -1,0 +1,65 @@
+{
+    "version": "1.0",
+    "description": "Grading rubric configuration for auto-grading engine with partial credit and cheating detection",
+    "thresholds": {
+        "short_answer": {
+            "excellent": {
+                "min_similarity": 0.85,
+                "credit_percentage": 100,
+                "description": "Answer demonstrates excellent understanding"
+            },
+            "good": {
+                "min_similarity": 0.65,
+                "credit_percentage": 75,
+                "description": "Answer demonstrates good understanding with minor gaps"
+            },
+            "partial": {
+                "min_similarity": 0.40,
+                "credit_percentage": 50,
+                "description": "Answer shows partial understanding"
+            },
+            "insufficient": {
+                "min_similarity": 0.0,
+                "credit_percentage": 0,
+                "description": "Answer does not demonstrate sufficient understanding"
+            }
+        },
+        "essay": {
+            "excellent": {
+                "min_similarity": 0.80,
+                "credit_percentage": 100,
+                "description": "Essay demonstrates excellent understanding and coverage"
+            },
+            "good": {
+                "min_similarity": 0.60,
+                "credit_percentage": 75,
+                "description": "Essay demonstrates good understanding with minor gaps"
+            },
+            "partial": {
+                "min_similarity": 0.35,
+                "credit_percentage": 50,
+                "description": "Essay shows partial understanding"
+            },
+            "insufficient": {
+                "min_similarity": 0.0,
+                "credit_percentage": 0,
+                "description": "Essay does not demonstrate sufficient understanding"
+            }
+        }
+    },
+    "cheating_detection": {
+        "exact_match_threshold": 0.98,
+        "exact_match_min_words": 15,
+        "ai_paraphrase": {
+            "high_semantic_threshold": 0.90,
+            "low_lexical_threshold": 0.40,
+            "description": "High semantic similarity but low lexical overlap suggests AI paraphrasing"
+        }
+    },
+    "scoring_weights": {
+        "essay": {
+            "length_component": 0.2,
+            "semantic_component": 0.8
+        }
+    }
+}

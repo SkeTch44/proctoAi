@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getToken } from "../../utils/authStorage";
+import { getSocket, onConnectionChange } from "../../services/socket";
 
 export default function ExamRoom() {
   const navigate = useNavigate();
@@ -31,12 +32,12 @@ export default function ExamRoom() {
   const fetchExam = async () => {
     const token = getToken();
     try {
-      const res = await fetch(`http://localhost:5000/api/exams/${examId}`, {
+      const res = await fetch(`http://127.0.0.1:5000/api/exams/${examId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
-      
+
       setExam(data);
       setTimeLeft(data.duration * 60); // Convert minutes to seconds
     } catch (err) {
@@ -49,17 +50,20 @@ export default function ExamRoom() {
   useEffect(() => {
     const startCamera = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 320, height: 240, facingMode: "user" },
-          audio: true 
+          audio: true
         });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           setProctoringStatus("active");
         }
 
-        // Send frames every 2 seconds for AI analysis
-        const interval = setInterval(captureFrame, 2000);
+        // Send frames every 10 seconds (with +/- 2s jitter to prevent thundering herd)
+        const jitter = Math.random() * 4000 - 2000; // -2s to +2s
+        const intervalTime = 10000 + jitter;
+
+        const interval = setInterval(captureFrame, intervalTime);
         return () => clearInterval(interval);
       } catch (err) {
         setProctoringStatus("camera_error");
@@ -75,20 +79,20 @@ export default function ExamRoom() {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(videoRef.current, 0, 0, 320, 240);
-    
+
     const frameData = canvas.toDataURL("image/jpeg", 0.6);
     const token = getToken();
 
     try {
-      await fetch("http://localhost:5000/api/proctoring_frame", {
+      await fetch("http://127.0.0.1:5000/api/proctoring_frame", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ 
-          session_id: sessionId, 
-          frame_data: frameData 
+        body: JSON.stringify({
+          session_id: sessionId,
+          frame_data: frameData
         })
       });
     } catch (err) {
@@ -96,28 +100,56 @@ export default function ExamRoom() {
     }
   }, [sessionId, proctoringStatus]);
 
-  // 3. WebSocket for live proctoring
+  // 3. Socket.IO for live proctoring
   useEffect(() => {
-    const socket = new WebSocket("ws://localhost:5000");
-    
-    socket.onopen = () => {
-      socket.send(JSON.stringify({
-        type: "join_session",
-        session_id: sessionId
-      }));
-    };
+    const socket = getSocket();
 
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === "proctoring_alert") {
-        setProctoringStatus("warning");
-        // Show violation toast
-        alert(`Proctoring Alert: ${data.details}`);
+    // Join session room
+    const joinSession = () => {
+      if (sessionId) {
+        socket.emit('join_session', { session_id: sessionId });
       }
     };
 
+    // Initial join
+    joinSession();
+
+    // Listen for proctoring alerts
+    socket.on('proctoring_alert', (data) => {
+      console.log('[ExamRoom] Proctoring alert received:', data);
+      if (data.session_id === sessionId) {
+        setProctoringStatus('warning');
+        alert(`Proctoring Alert: ${data.details || data.alert_type}`);
+      }
+    });
+
+    // Listen for status messages
+    socket.on('status', (data) => {
+      console.log('[ExamRoom] Status:', data.message);
+    });
+
+    // Handle connection state changes
+    const unsubscribe = onConnectionChange((status, data) => {
+      console.log('[ExamRoom] Connection status:', status, data);
+
+      if (status === 'connected' || status === 'reconnected') {
+        setProctoringStatus('active');
+        // Rejoin session after reconnection
+        joinSession();
+      } else if (status === 'disconnected') {
+        setProctoringStatus('camera_error');
+      } else if (status === 'reconnecting') {
+        setProctoringStatus('initializing');
+      }
+    });
+
     wsRef.current = socket;
-    return () => socket.close();
+
+    return () => {
+      socket.off('proctoring_alert');
+      socket.off('status');
+      unsubscribe();
+    };
   }, [sessionId]);
 
   // 4. Fullscreen + Anti-cheat Detection
@@ -157,16 +189,16 @@ export default function ExamRoom() {
 
   const logViolation = async (type, severity) => {
     const token = getToken();
-    await fetch("http://localhost:5000/api/proctoring_event", {
+    await fetch("http://127.0.0.1:5000/api/proctoring_event", {
       method: "POST",
-      headers: { 
+      headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`
       },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         session_id: sessionId,
         event_type: type,
-        severity 
+        severity
       })
     });
   };
@@ -200,18 +232,18 @@ export default function ExamRoom() {
   const handleExamEnd = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
-    
+
     const token = getToken();
     try {
-      await fetch("http://localhost:5000/api/end_exam", {
+      await fetch("http://127.0.0.1:5000/api/end_exam", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           session_id: sessionId,
-          answers 
+          answers
         })
       });
       navigate("/student/results");
@@ -222,7 +254,7 @@ export default function ExamRoom() {
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
+      document.documentElement.requestFullscreen().catch(() => { });
     } else {
       document.exitFullscreen();
     }
@@ -256,11 +288,11 @@ export default function ExamRoom() {
 
   return (
     <div className={`min-h-screen bg-[#F3F4F6] dark:bg-[#011627] transition-all duration-300 ${isFullScreen ? 'p-2' : 'p-4 md:p-6 lg:p-8'}`}>
-      
+
       {/* Header + Camera */}
       <div className="mb-6 rounded-2xl shadow-xl">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          
+
           {/* Header */}
           <div className="lg:col-span-10 bg-gradient-to-r from-[#1E3A8A] via-[#3730A3] to-[#1E40AF] p-4 lg:p-6 text-white rounded-l-2xl">
             {/* Your existing header JSX */}
@@ -286,16 +318,15 @@ export default function ExamRoom() {
           {/* Live Camera */}
           <div className="lg:col-span-2 bg-black/30 p-2 lg:p-4 rounded-r-2xl">
             <div className="relative">
-              <video 
-                ref={videoRef} 
-                autoPlay 
-                muted 
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
                 className="w-full h-24 lg:h-32 rounded-xl object-cover border-2 border-white/30 shadow-xl"
               />
-              <div className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white/50 animate-pulse ${
-                proctoringStatus === "active" ? "bg-green-400" : 
+              <div className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white/50 animate-pulse ${proctoringStatus === "active" ? "bg-green-400" :
                 proctoringStatus === "warning" ? "bg-yellow-400" : "bg-red-400"
-              }`} />
+                }`} />
             </div>
           </div>
         </div>
@@ -307,7 +338,7 @@ export default function ExamRoom() {
       {/* Questions + Answers - Your existing JSX */}
       <div className="bg-white/95 dark:bg-[#0f1724]/95 backdrop-blur-xl rounded-2xl shadow-xl border overflow-hidden">
         {/* Question header, options, navigation - keep your existing */}
-        
+
         {/* Submit button in navigation */}
         <button
           onClick={handleExamEnd}

@@ -4,104 +4,109 @@ import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
 import jwt
-from flask import Flask, request, jsonify, send_file
+import io
+from flask import Flask, request, jsonify, send_file, Response
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from flasgger import Swagger
 
 from questions import QuestionGenerator
 from grading import GradingEngine
-from models.cheat_detector import CheatDetector
-from utils.pdf_parser import parse_pdf
-from utils.docx_parser import parse_docx
-from utils.report_export import generate_exam_report
+
+from backend.utils.pdf_parser import parse_pdf
+from backend.utils.docx_parser import parse_docx
+from backend.utils.report_export import generate_exam_report
 from config import Config
+from db.database import DatabaseManager
 
 app = Flask(__name__)
 app.config.from_object(Config)
+# Initialize Flasgger
+swagger = Swagger(app)
+
 CORS(app, origins=app.config['CORS_ORIGINS'])
-socketio = SocketIO(app, cors_allowed_origins=app.config['CORS_ORIGINS'])
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins=app.config['CORS_ORIGINS'],
+    message_queue=app.config['CELERY_BROKER_URL'],
+    ping_timeout=60,
+    ping_interval=25,
+    logger=True,
+    engineio_logger=True
+)
 
 # Initialize components
 question_generator = QuestionGenerator()
 grading_engine = GradingEngine()
-cheat_detector = CheatDetector()
+from question_bank import QuestionBankManager, Question # Import Question models
 
-# Database setup
-def init_db():
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
+db_manager = DatabaseManager('sqlite:///exam_platform.db')
+qb_manager = QuestionBankManager('exam_platform.db')
+
+from backend.celery_app import celery
+
+# ... [Keep other routes] ...
+
+@socketio.on('tab_switch')
+def handle_tab_switch_event(data):
+    session_id = data.get('session_id')
+    if session_id:
+        # Lightweight logic - handled directly or moved to task
+        # Replicating logic here to avoid loading heavy CheatDetector
+        result = {
+            'suspicious': True,
+            'suspicion_score': 100 * 0.10 * 5, 
+            'severity': 'HIGH',
+            'alert_type': 'TAB_SWITCH',
+            'confidence': 1.0,
+            'details': {'message': 'User switched tabs or lost focus'}
+        }
+        
+        # Emit alert immediately
+        socketio.emit('proctoring_alert', {
+            'session_id': session_id,
+            'alert_type': result.get('alert_type'),
+            'confidence': result.get('confidence'),
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'server_time': datetime.utcnow().timestamp(),
+            'details': result.get('details')
+        }, room='admins')
+        
+        # Log to DB
+        db_manager.log_proctoring_event(session_id, 'TAB_SWITCH', 'high', str(result['details']))
+
+@socketio.on('proctoring_data')
+def handle_proctoring_data(data):
+    # Process real-time proctoring data ASYNC
+    session_id = data.get('session_id')
+    frame_data = data.get('frame_data')
+    audio_data = data.get('audio_data')
     
-    # Users table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT DEFAULT 'student',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Exams table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS exams (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT,
-            questions TEXT NOT NULL,
-            duration INTEGER DEFAULT 3600,
-            created_by INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (created_by) REFERENCES users (id)
-        )
-    ''')
-    
-    # Sessions table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            exam_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            answers TEXT,
-            score REAL DEFAULT 0,
-            suspicion_score INTEGER DEFAULT 0,
-            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP,
-            status TEXT DEFAULT 'active',
-            FOREIGN KEY (exam_id) REFERENCES exams (id),
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    ''')
-    
-    # Proctoring events table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS proctoring_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id INTEGER NOT NULL,
-            event_type TEXT NOT NULL,
-            severity TEXT NOT NULL,
-            details TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (session_id) REFERENCES sessions (id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
+    if session_id:
+        # Offload to Celery
+        celery.send_task('backend.tasks.analyze_frame_task', args=[session_id, frame_data, audio_data])
+        
+        # Acknowledge receipt (optional, but good for client)
+        # emit('ack', {'status': 'received'})
 
 # JWT token authentication
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = request.headers.get('Authorization')
+        
+        # Fallback to Cookie
+        if not token:
+            token = request.cookies.get('token')
+            
         if not token:
             return jsonify({'message': 'Token is missing'}), 401
         from jwt import ExpiredSignatureError, InvalidTokenError
         
         try:
-            token = token.replace('Bearer ', '')
+            token = token.replace('Bearer ', '') if token.startswith('Bearer ') else token
             data = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=['HS256'])
             current_user_id = data['user_id']
             current_user_role = data['role']
@@ -122,28 +127,32 @@ def register():
     if not username or not password:
         return jsonify({'message': 'Username and password required'}), 400
     
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
-    
-    try:
-        password_hash = generate_password_hash(password)
-        cursor.execute('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
-                      (username, password_hash, role))
-        conn.commit()
-        user_id = cursor.lastrowid
-        
-        token = jwt.encode({
-            'user_id': user_id,
-            'username': username,
-            'role': role,
-            'exp': datetime.utcnow() + timedelta(hours=24)
-        }, app.config['JWT_SECRET_KEY'])
-        
-        return jsonify({'token': token, 'user': {'id': user_id, 'username': username, 'role': role}})
-    except sqlite3.IntegrityError:
+    if db_manager.user_exists(username):
         return jsonify({'message': 'Username already exists'}), 400
-    finally:
-        conn.close()
+    
+    password_hash = generate_password_hash(password)
+    user_id = db_manager.create_user(username, password_hash, role=role)
+    
+    if not user_id:
+        return jsonify({'message': 'Registration failed'}), 500
+    
+    token = jwt.encode({
+        'user_id': user_id,
+        'username': username,
+        'role': role,
+        'exp': datetime.utcnow() + timedelta(hours=24)
+    }, app.config['JWT_SECRET_KEY'])
+    
+    response = jsonify({'token': token, 'user': {'id': user_id, 'username': username, 'role': role}})
+    response.set_cookie(
+        'token', 
+        token, 
+        httponly=True, 
+        secure=not app.config['DEBUG'], 
+        samesite='Strict',
+        max_age=86400
+    )
+    return response
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -154,21 +163,33 @@ def login():
     if not username or not password:
         return jsonify({'message': 'Username and password required'}), 400
     
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, username, password_hash, role FROM users WHERE username = ?', (username,))
-    user = cursor.fetchone()
-    conn.close()
+    user_data = db_manager.get_user_by_username(username)
     
-    if user and check_password_hash(user[2], password):
+    if user_data and check_password_hash(user_data['password_hash'], password):
         token = jwt.encode({
-            'user_id': user[0],
-            'username': user[1],
-            'role': user[3],
+            'user_id': user_data['id'],
+            'username': user_data['username'],
+            'role': user_data['role'],
             'exp': datetime.utcnow() + timedelta(hours=24)
         }, app.config['JWT_SECRET_KEY'])
         
-        return jsonify({'token': token, 'user': {'id': user[0], 'username': user[1], 'role': user[3]}})
+        response = jsonify({
+            'token': token, 
+            'user': {
+                'id': user_data['id'], 
+                'username': user_data['username'], 
+                'role': user_data['role']
+            }
+        })
+        response.set_cookie(
+            'token', 
+            token, 
+            httponly=True, 
+            secure=not app.config['DEBUG'], 
+            samesite='Strict',
+            max_age=86400
+        )
+        return response
     
     return jsonify({'message': 'Invalid credentials'}), 401
 
@@ -213,13 +234,44 @@ def generate_questions_endpoint(user_id, user_role):
     content = data.get('content', '')
     question_count = data.get('question_count', 10)
     difficulty = data.get('difficulty', 'medium')
+    topic = data.get('topic', 'General')
     
     if not content:
         return jsonify({'message': 'Content is required'}), 400
     
     try:
-        questions = question_generator.generate_questions(content, question_count, difficulty)
-        return jsonify({'questions': questions})
+        # 1. Generate Questions
+        questions = question_generator.generate_questions(content, question_count, difficulty, topic=topic)
+        
+        # 2. Persist to Question Bank
+        saved_questions = []
+        for q_data in questions:
+            try:
+                # Convert dict to Question object
+                q_obj = Question(
+                    title=f"{topic} Question", # Auto-title
+                    question_text=q_data.get('question', ''),
+                    question_type=q_data.get('type', 'mcq'),
+                    difficulty=q_data.get('difficulty', difficulty),
+                    points=q_data.get('points', 1),
+                    topic=topic,
+                    question_data=q_data, # Store full metadata including options
+                    explanation=q_data.get('explanation', ''),
+                    created_by=user_id,
+                    status='active'
+                )
+                
+                # Save
+                q_id = qb_manager.create_question(q_obj)
+                if q_id:
+                    q_data['db_id'] = q_id # Enrich with DB ID
+                    saved_questions.append(q_data)
+            except Exception as e:
+                # Fallback: return generated question even if save fails
+                print(f"Failed to save question: {e}") 
+                saved_questions.append(q_data)
+                
+        return jsonify({'questions': saved_questions})
     except Exception as e:
         return jsonify({'message': f'Question generation failed: {str(e)}'}), 500
 
@@ -227,22 +279,8 @@ def generate_questions_endpoint(user_id, user_role):
 @app.route('/api/exams', methods=['GET'])
 @token_required
 def get_exams(user_id, user_role):
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, title, description, duration FROM exams')
-    exams = cursor.fetchall()
-    conn.close()
-    
-    exam_list = []
-    for exam in exams:
-        exam_list.append({
-            'id': exam[0],
-            'title': exam[1],
-            'description': exam[2],
-            'duration': exam[3]
-        })
-    
-    return jsonify({'exams': exam_list})
+    exams = db_manager.get_all_exams()
+    return jsonify({'exams': exams})
 
 @app.route('/api/exams', methods=['POST'])
 @token_required
@@ -259,15 +297,10 @@ def create_exam(user_id, user_role):
     if not title or not questions:
         return jsonify({'message': 'Title and questions are required'}), 400
     
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
-    cursor.execute(
-        'INSERT INTO exams (title, description, questions, duration, created_by) VALUES (?, ?, ?, ?, ?)',
-        (title, description, json.dumps(questions), duration, user_id)
-    )
-    conn.commit()
-    exam_id = cursor.lastrowid
-    conn.close()
+    exam_id = db_manager.create_exam(title, description, questions, duration, user_id)
+    
+    if not exam_id:
+        return jsonify({'message': 'Exam creation failed'}), 500
     
     return jsonify({'exam_id': exam_id, 'message': 'Exam created successfully'})
 
@@ -281,32 +314,23 @@ def start_exam(user_id, user_role):
     if not exam_id:
         return jsonify({'message': 'Exam ID is required'}), 400
     
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
-    
-    # Get exam details
-    cursor.execute('SELECT id, title, questions, duration FROM exams WHERE id = ?', (exam_id,))
-    exam = cursor.fetchone()
+    exam = db_manager.get_exam_by_id(exam_id)
     
     if not exam:
         return jsonify({'message': 'Exam not found'}), 404
     
-    # Create session
-    cursor.execute(
-        'INSERT INTO sessions (exam_id, user_id, status) VALUES (?, ?, ?)',
-        (exam_id, user_id, 'active')
-    )
-    session_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+    session_id = db_manager.create_session(exam_id, user_id)
     
-    questions = json.loads(exam[2])
+    if not session_id:
+        return jsonify({'message': 'Session creation failed'}), 500
+    
+    questions = json.loads(exam['questions'])
     
     return jsonify({
         'session_id': session_id,
-        'exam_title': exam[1],
+        'exam_title': exam['title'],
         'questions': questions,
-        'duration': exam[3]
+        'duration': exam['duration']
     })
 
 @app.route('/api/submit_answer', methods=['POST'])
@@ -320,21 +344,15 @@ def submit_answer(user_id, user_role):
     if not all([session_id, question_id, answer]):
         return jsonify({'message': 'Session ID, question ID, and answer are required'}), 400
     
-    # Store answer (simplified - in production, you'd update incrementally)
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT answers FROM sessions WHERE id = ? AND user_id = ?', (session_id, user_id))
-    result = cursor.fetchone()
+    session = db_manager.get_session(session_id, user_id)
     
-    if not result:
+    if not session:
         return jsonify({'message': 'Session not found'}), 404
     
-    answers = json.loads(result[0] or '{}')
+    answers = json.loads(session['answers'] or '{}')
     answers[str(question_id)] = answer
     
-    cursor.execute('UPDATE sessions SET answers = ? WHERE id = ?', (json.dumps(answers), session_id))
-    conn.commit()
-    conn.close()
+    db_manager.update_session_answers(session_id, answers)
     
     return jsonify({'message': 'Answer submitted successfully'})
 
@@ -347,78 +365,69 @@ def end_exam(user_id, user_role):
     if not session_id:
         return jsonify({'message': 'Session ID is required'}), 400
     
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
-    
-    # Get session and exam data
-    cursor.execute('''
-        SELECT s.answers, e.questions 
-        FROM sessions s 
-        JOIN exams e ON s.exam_id = e.id 
-        WHERE s.id = ? AND s.user_id = ?
-    ''', (session_id, user_id))
-    result = cursor.fetchone()
+    result = db_manager.get_full_session_details(session_id, user_id)
     
     if not result:
         return jsonify({'message': 'Session not found'}), 404
     
-    answers = json.loads(result[0] or '{}')
-    questions = json.loads(result[1])
+    answers = json.loads(result['answers'] or '{}')
+    questions = json.loads(result['questions'])
     
     # Grade the exam
     score = grading_engine.grade_exam(questions, answers)
     
     # Update session
-    cursor.execute('''
-        UPDATE sessions 
-        SET completed_at = CURRENT_TIMESTAMP, status = 'completed', score = ?
-        WHERE id = ?
-    ''', (score, session_id))
-    conn.commit()
-    conn.close()
+    db_manager.complete_session(session_id, score)
     
     return jsonify({'score': score, 'message': 'Exam completed successfully'})
 
-# Proctoring endpoints
-@app.route('/api/proctoring_event', methods=['POST'])
-@token_required
-def log_proctoring_event(user_id, user_role):
-    data = request.get_json()
-    session_id = data.get('session_id')
-    event_type = data.get('event_type')
-    severity = data.get('severity', 'low')
-    details = data.get('details', '')
-    
-    if not all([session_id, event_type]):
-        return jsonify({'message': 'Session ID and event type are required'}), 400
-    
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
-    cursor.execute(
-        'INSERT INTO proctoring_events (session_id, event_type, severity, details) VALUES (?, ?, ?, ?)',
-        (session_id, event_type, severity, details)
-    )
-    conn.commit()
-    
-    # Update suspicion score
-    suspicion_increase = {'low': 1, 'medium': 3, 'high': 5, 'critical': 10}.get(severity, 1)
-    cursor.execute(
-        'UPDATE sessions SET suspicion_score = suspicion_score + ? WHERE id = ?',
-        (suspicion_increase, session_id)
-    )
-    conn.commit()
-    conn.close()
-    
     # Emit real-time alert to admins
     socketio.emit('proctoring_alert', {
         'session_id': session_id,
         'event_type': event_type,
         'severity': severity,
         'details': details,
-        'timestamp': datetime.now().isoformat()
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
+        'server_time': datetime.utcnow().timestamp()
     }, room='admins')
     
     return jsonify({'message': 'Event logged successfully'})
+
+# Report Export
+@app.route('/api/exam/report/<session_id>', methods=['GET'])
+@token_required
+def download_exam_report(user_id, user_role, session_id):
+    format_type = request.args.get('format', 'pdf')
+    
+    # Get full session details
+    session_data = db_manager.get_full_session_details(session_id, user_id)
+    if not session_data:
+        return jsonify({'message': 'Session not found'}), 404
+    
+    # Check permissions (student can only see own, admin can see all)
+    if user_role != 'admin' and str(session_data.get('user_id')) != str(user_id):
+         return jsonify({'message': 'Unauthorized'}), 403
+
+    try:
+        # Generate report
+        report_output = generate_exam_report(session_data, format_type=format_type)
+        
+        if format_type == 'json':
+            return jsonify(json.loads(report_output))
+            
+        elif format_type == 'pdf':
+            return send_file(
+                io.BytesIO(report_output),
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f"exam_report_{session_id}.pdf"
+            )
+            
+        elif format_type == 'text':
+             return Response(report_output, mimetype='text/plain')
+             
+    except Exception as e:
+        return jsonify({'message': f'Report generation failed: {str(e)}'}), 500
 
 # Admin dashboard endpoints
 @app.route('/api/admin/dashboard', methods=['GET'])
@@ -427,49 +436,26 @@ def admin_dashboard(user_id, user_role):
     if user_role != 'admin':
         return jsonify({'message': 'Admin access required'}), 403
     
-    conn = sqlite3.connect('exam_platform.db')
-    cursor = conn.cursor()
-    
-    # Get active sessions
-    cursor.execute('''
-        SELECT s.id, u.username, e.title, s.suspicion_score, s.started_at
-        FROM sessions s
-        JOIN users u ON s.user_id = u.id
-        JOIN exams e ON s.exam_id = e.id
-        WHERE s.status = 'active'
-    ''')
-    active_sessions = cursor.fetchall()
-    
-    # Get recent alerts
-    cursor.execute('''
-        SELECT pe.event_type, pe.severity, pe.timestamp, u.username
-        FROM proctoring_events pe
-        JOIN sessions s ON pe.session_id = s.id
-        JOIN users u ON s.user_id = u.id
-        ORDER BY pe.timestamp DESC
-        LIMIT 20
-    ''')
-    recent_alerts = cursor.fetchall()
-    
-    conn.close()
+    active_sessions = db_manager.get_active_sessions_with_details()
+    recent_alerts = db_manager.get_recent_alerts(20)
     
     return jsonify({
         'active_sessions': [
             {
-                'session_id': session[0],
-                'username': session[1],
-                'exam_title': session[2],
-                'suspicion_score': session[3],
-                'started_at': session[4]
+                'session_id': session['id'],
+                'username': session['username'],
+                'exam_title': session['title'],
+                'suspicion_score': session['suspicion_score'],
+                'started_at': session['started_at']
             }
             for session in active_sessions
         ],
         'recent_alerts': [
             {
-                'event_type': alert[0],
-                'severity': alert[1],
-                'timestamp': alert[2],
-                'username': alert[3]
+                'event_type': alert['event_type'],
+                'severity': alert['severity'],
+                'timestamp': alert['timestamp'],
+                'username': alert['username']
             }
             for alert in recent_alerts
         ]
@@ -488,25 +474,10 @@ def on_join_session(data):
         join_room(f'session_{session_id}')
         emit('status', {'message': f'Joined session {session_id}'})
 
-@socketio.on('proctoring_data')
-def handle_proctoring_data(data):
-    # Process real-time proctoring data
-    session_id = data.get('session_id')
-    frame_data = data.get('frame_data')
-    
-    if session_id and frame_data:
-        # Analyze frame for suspicious activity
-        analysis_result = cheat_detector.analyze_frame(frame_data)
-        
-        if analysis_result.get('suspicious'):
-            # Emit alert to admins
-            socketio.emit('proctoring_alert', {
-                'session_id': session_id,
-                'alert_type': analysis_result.get('alert_type'),
-                'confidence': analysis_result.get('confidence'),
-                'timestamp': datetime.now().isoformat()
-            }, room='admins')
+
+
+
 
 if __name__ == '__main__':
-    init_db()
+    db_manager.init_database()
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

@@ -11,8 +11,12 @@ class Config:
     """Base configuration for the proctored exam platform."""
 
     # Flask settings
-    SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production")
+    _default_secret = "change-me-in-production"
+    SECRET_KEY = os.getenv("SECRET_KEY", _default_secret)
     DEBUG = os.getenv("FLASK_ENV", "development") == "development"
+    
+    if not DEBUG and SECRET_KEY == _default_secret:
+        raise ValueError("CRITICAL: SECRET_KEY not set in production environment!")
 
     # JWT settings
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "jwt-secret-key")
@@ -50,6 +54,14 @@ class Config:
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     LOG_FILE = os.getenv("LOG_FILE", "logs/app.log")
+
+    # Celery
+    CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+    CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+
+    # Local LLM (Ollama)
+    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 
 class DevelopmentConfig(Config):
     DEBUG = True

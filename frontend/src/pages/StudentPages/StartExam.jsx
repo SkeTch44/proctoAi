@@ -101,7 +101,7 @@ export default function StartExam() {
     const token = getToken();
     if (!token) throw new Error("No auth token");
 
-    const res = await fetch("http://localhost:5000/api/start_exam", {
+    const res = await fetch("http://127.0.0.1:5000/api/start_exam", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -152,10 +152,9 @@ export default function StartExam() {
           onClick={handleClick}
           className={`
             mt-4 w-full py-3 px-6 rounded-2xl font-semibold text-sm shadow-lg transition-all duration-300 transform
-            ${
-              disabled || isStarting
-                ? "bg-gray-400 cursor-not-allowed opacity-60 shadow-none"
-                : "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 hover:shadow-2xl hover:-translate-y-1 hover:scale-[1.02] text-white"
+            ${disabled || isStarting
+              ? "bg-gray-400 cursor-not-allowed opacity-60 shadow-none"
+              : "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 hover:shadow-2xl hover:-translate-y-1 hover:scale-[1.02] text-white"
             }
           `}
         >
@@ -286,9 +285,8 @@ function ExamCard({ exam }) {
   return (
     <div className="group relative p-8 rounded-3xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl border-2 hover:border-4 transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 hover:scale-[1.02] cursor-pointer border-gray-200/50 dark:border-slate-700/50 hover:border-blue-400/70">
       <div
-        className={`absolute -top-3 left-1/2 transform -translate-x-1/2 px-4 py-1 rounded-full text-xs font-bold shadow-lg ${
-          statusColors[exam.color]
-        }`}
+        className={`absolute -top-3 left-1/2 transform -translate-x-1/2 px-4 py-1 rounded-full text-xs font-bold shadow-lg ${statusColors[exam.color]
+          }`}
       >
         {exam.status}
       </div>
@@ -316,24 +314,21 @@ function ExamCard({ exam }) {
 function PermissionStatus({ type, granted, onRequest, size = "md" }) {
   return (
     <div
-      className={`flex items-center justify-between gap-2 p-2 lg:p-3 rounded-xl border transition-all duration-300 shadow-sm backdrop-blur-sm overflow-hidden ${
-        granted
+      className={`flex items-center justify-between gap-2 p-2 lg:p-3 rounded-xl border transition-all duration-300 shadow-sm backdrop-blur-sm overflow-hidden ${granted
           ? "bg-emerald-100/90 border-emerald-300/70 text-emerald-800 shadow-emerald-200/40 dark:bg-emerald-900/40 dark:border-emerald-400/60 dark:text-emerald-200"
           : "bg-rose-100/90 border-rose-300/70 text-rose-800 shadow-rose-200/40 dark:bg-rose-900/40 dark:border-rose-400/60 dark:text-rose-200 hover:shadow-rose-300/60"
-      }`}
+        }`}
     >
       <div className="flex items-center gap-2 flex-shrink-0">
         <div
-          className={`w-3 h-3 rounded-full shadow-sm transition-all ${
-            granted
+          className={`w-3 h-3 rounded-full shadow-sm transition-all ${granted
               ? "bg-emerald-500 scale-110 shadow-emerald-300 animate-pulse"
               : "bg-rose-500 shadow-rose-200 hover:scale-110"
-          }`}
+            }`}
         />
         <span
-          className={`font-medium text-xs lg:text-sm ${
-            size === "sm" ? "tracking-tight" : ""
-          }`}
+          className={`font-medium text-xs lg:text-sm ${size === "sm" ? "tracking-tight" : ""
+            }`}
         >
           {type}
         </span>
@@ -361,11 +356,10 @@ function ChecklistItem({ text, checked, onChange, disabled }) {
         className="w-6 h-6 rounded-lg text-emerald-600 border-2 border-emerald-300 focus:ring-emerald-500 focus:ring-2 shadow-md transition-all group-hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed"
       />
       <span
-        className={`text-lg font-medium transition-colors ${
-          checked
+        className={`text-lg font-medium transition-colors ${checked
             ? "text-emerald-700 dark:text-emerald-300"
             : "text-gray-700 dark:text-gray-300 group-hover:text-emerald-600"
-        }`}
+          }`}
       >
         {text}
       </span>

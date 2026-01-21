@@ -13,6 +13,7 @@
 dist/
 
 # misc
+.env
 .DS_Store
 .env.local
 .env.development.local
@@ -47,3 +48,19 @@ coverage/
 # Misc
 *.log
 *.tgz
+
+# SQLite DB
+backend/*.db
+backend/**/*.db
+
+# Python cache
+__pycache__/
+*.pyc
+
+# SQLite
+*.db
+*.db-wal
+*.db-shm
+
+# Node
+node_modules/

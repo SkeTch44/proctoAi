@@ -1,18 +1,24 @@
 import sqlite3
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict
-from werkzeug.security import check_password_hash, generate_password_hash
+from typing import Optional, Dict, List, Any
+import json
+
+from werkzeug.security import check_password_hash
 
 logger = logging.getLogger(__name__)
 
-class DatabaseManager:
-    def __init__(self, database_url: str):
-        if database_url.startswith("sqlite:///"):
-            self.db_path = database_url.replace("sqlite:///", "", 1)
-        else:
-            self.db_path = database_url
 
+class DatabaseManager:
+    """
+    Comprehensive database manager for the exam platform
+    Handles CRUD operations for users, exams, sessions, proctoring
+    """
+
+    def __init__(self, database_url: str):
+        self.db_path = database_url.replace("sqlite:///", "")
+
+    # ---------- CONNECTION ----------
     def get_connection(self):
         conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
@@ -20,357 +26,362 @@ class DatabaseManager:
         conn.execute("PRAGMA journal_mode = WAL")
         return conn
 
-    def migrate_schema(self):
-        conn = self.get_connection()
-        try:
-            # ADD full_name FIRST (CRITICAL)
-            try:
-                conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT;")
-                print("✅ Added full_name column")
-            except sqlite3.OperationalError:
-                pass
-            try:
-                conn.execute("ALTER TABLE users ADD COLUMN password_changed_at TIMESTAMP;")
-                print("✅ Added password_changed_at column")
-            except sqlite3.OperationalError:
-                pass
-
-            for stmt in [
-                "ALTER TABLE users ADD COLUMN phone TEXT;",
-                "ALTER TABLE users ADD COLUMN institution TEXT;",
-                "ALTER TABLE users ADD COLUMN program TEXT;",
-                "ALTER TABLE users ADD COLUMN year TEXT;",
-                "ALTER TABLE users ADD COLUMN avatar_url TEXT;",
-                "ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1;",
-                "ALTER TABLE users ADD COLUMN login_attempts INTEGER DEFAULT 0;",
-                "ALTER TABLE users ADD COLUMN locked_until TIMESTAMP;",
-                "ALTER TABLE users ADD COLUMN last_login TIMESTAMP;",
-                "ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
-                "ALTER TABLE users ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
-            ]:
-                try:
-                    conn.execute(stmt)
-                except sqlite3.OperationalError:
-                    pass
-            conn.execute("""
-            CREATE TABLE IF NOT EXISTS exams (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                max_score INTEGER NOT NULL,
-                exam_date TIMESTAMP,
-                status TEXT DEFAULT 'Completed' CHECK(status IN ('Completed', 'Pending', 'Failed'))
-                 );
-                """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS exam_results (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    exam_id INTEGER NOT NULL,
-                    score INTEGER NOT NULL,
-                    status TEXT NOT NULL CHECK(status IN ('Pass', 'Fail')),
-                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(id),
-                    FOREIGN KEY (exam_id) REFERENCES exams(id)
-                );
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS support_tickets (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    type TEXT NOT NULL CHECK(type IN ('technical', 'policy', 'general')),
-                    subject TEXT NOT NULL,
-                    message TEXT NOT NULL,
-                    status TEXT DEFAULT 'open' CHECK(status IN ('open', 'in_progress', 'resolved', 'closed')),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(id)
-                );
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS feedback (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
-                    category TEXT NOT NULL,
-                    subject TEXT NOT NULL,
-                    message TEXT NOT NULL,
-                    suggestions TEXT,
-                    status TEXT DEFAULT 'received' CHECK(status IN ('received', 'reviewed', 'implemented')),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(id)
-                );
-            """)
-            conn.execute("UPDATE users SET is_active = 1 WHERE is_active IS NULL;")
-            conn.execute("UPDATE users SET login_attempts = 0 WHERE login_attempts IS NULL;")
-            conn.commit()
-            print("✅ Migration complete")
-            print("✅ Exam results tables created")
-            print("✅ Support tickets table created") 
-            print("✅ Feedback table created")
-        finally:
-            conn.close()
-
+    # ---------- INIT ----------
     def init_database(self) -> bool:
         conn = self.get_connection()
+        cursor = conn.cursor()
         try:
-            conn.execute("""
+            # Users table
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,  -- REQUIRED
-                    email TEXT NOT NULL UNIQUE,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE,
                     password_hash TEXT NOT NULL,
-                    role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('admin', 'student', 'teacher')),
-                    phone TEXT, institution TEXT, program TEXT, year TEXT, avatar_url TEXT,
-                    is_active INTEGER DEFAULT 1, login_attempts INTEGER DEFAULT 0, locked_until TIMESTAMP,
-                    last_login TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
+                    role TEXT DEFAULT 'student'
+                        CHECK (role IN ('student', 'teacher', 'admin')),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1,
+                    login_attempts INTEGER DEFAULT 0,
+                    locked_until TIMESTAMP
+                )
             """)
+            
+            # Exams table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS exams (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    questions TEXT NOT NULL,
+                    duration INTEGER DEFAULT 3600,
+                    created_by INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (created_by) REFERENCES users (id)
+                )
+            ''')
+            
+            # Sessions table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    exam_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    answers TEXT,
+                    score REAL DEFAULT 0,
+                    suspicion_score INTEGER DEFAULT 0,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    status TEXT DEFAULT 'active',
+                    FOREIGN KEY (exam_id) REFERENCES exams (id),
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
+            # Proctoring events table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS proctoring_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    details TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES sessions (id)
+                )
+            ''')
+
             conn.commit()
+            logger.info("Database initialized successfully")
             return True
         except Exception as e:
-            logger.error(f"DB init failed: {e}")
             conn.rollback()
+            logger.error(f"Database init failed: {e}")
             return False
         finally:
             conn.close()
 
-    def create_user(self, username: str, email: str, password: str, role: str = "student", full_name: str = None) -> Optional[int]:
+    # ---------- USER OPERATIONS ----------
+    def user_exists(self, username: str, email: Optional[str] = None) -> bool:
         conn = self.get_connection()
-        try:
-            password_hash = generate_password_hash(password)
-            cur = conn.execute(
-                "INSERT INTO users (username, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)",
-                (username, full_name, email, password_hash, role)
+        cursor = conn.cursor()
+        if email:
+            cursor.execute(
+                "SELECT id FROM users WHERE username = ? OR email = ?",
+                (username, email)
             )
+        else:
+            cursor.execute(
+                "SELECT id FROM users WHERE username = ?",
+                (username,)
+            )
+        exists = cursor.fetchone() is not None
+        conn.close()
+        return exists
+
+    def create_user(
+        self,
+        username: str,
+        password_hash: str,
+        email: Optional[str] = None,
+        role: str = "student"
+    ) -> Optional[int]:
+
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO users (username, email, password_hash, role)
+                VALUES (?, ?, ?, ?)
+            """, (username, email, password_hash, role))
             conn.commit()
-            print(f"✅ Created user: {username} (full_name: {full_name})")
-            return cur.lastrowid
+            user_id = cursor.lastrowid
+            logger.info(f"User created: {username} (ID {user_id})")
+            return user_id
         except Exception as e:
-            print(f"Create error: {e}")
             conn.rollback()
+            logger.error(f"User creation failed: {e}")
             return None
         finally:
             conn.close()
+
+    def get_user_by_username(self, username: str) -> Optional[Dict]:
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, username, password_hash, role FROM users WHERE username = ?', (username,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return dict(row)
+        return None
 
     def authenticate_user(self, identifier: str, password: str) -> Optional[Dict]:
+        """
+        identifier = username OR email
+        """
         conn = self.get_connection()
+        cursor = conn.cursor()
+
         try:
-            row = conn.execute("SELECT * FROM users WHERE username = ? OR email = ?", (identifier, identifier)).fetchone()
+            cursor.execute("""
+                SELECT *
+                FROM users
+                WHERE username = ? OR email = ?
+            """, (identifier, identifier))
+
+            row = cursor.fetchone()
             if not row:
                 return None
+
             user = dict(row)
-            
-            if user["locked_until"] and datetime.utcnow() < datetime.fromisoformat(user["locked_until"]):
-                return None
 
+            # Account locked?
+            if user["locked_until"]:
+                locked_until = datetime.fromisoformat(user["locked_until"])
+                if datetime.utcnow() < locked_until:
+                    logger.warning(f"Locked account login attempt: {identifier}")
+                    return None
+
+            # Password check
             if check_password_hash(user["password_hash"], password):
-                conn.execute("UPDATE users SET login_attempts = 0, locked_until = NULL, last_login = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],))
+                cursor.execute("""
+                    UPDATE users
+                    SET login_attempts = 0,
+                        locked_until = NULL,
+                        last_login = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (user["id"],))
                 conn.commit()
-                user.pop("password_hash", None)
-                user.pop("login_attempts", None)
-                user.pop("locked_until", None)
+
+                # Remove sensitive fields
+                user.pop("password_hash")
+                user.pop("login_attempts")
+                user.pop("locked_until")
                 return user
 
+            # Failed login
             attempts = user["login_attempts"] + 1
-            locked_until = (datetime.utcnow() + timedelta(minutes=30)).isoformat() if attempts >= 5 else None
-            conn.execute("UPDATE users SET login_attempts = ?, locked_until = ? WHERE id = ?", (attempts, locked_until, user["id"]))
-            conn.commit()
-            return None
-        finally:
-            conn.close()
+            lock_time = None
+            if attempts >= 5:
+                lock_time = (datetime.utcnow() + timedelta(minutes=30)).isoformat()
 
-    def get_current_user(self, user_id: int) -> Optional[Dict]:
-        conn = self.get_connection()
-        try:
-            row = conn.execute("""
-                SELECT id, username, full_name, email, role, phone, institution, 
-                       program, year, last_login, password_changed_at 
-                FROM users WHERE id = ?
-            """, (user_id,)).fetchone()
-            if row:
-                user = dict(row)
-                user["name"] = user["full_name"] or user["username"]
-                return user
-            return None
-        finally:
-            conn.close()
-
-    def update_student_profile(self, user_id: int, data: Dict) -> bool:
-        conn = self.get_connection()
-        try:
-            conn.execute("""
-                UPDATE users SET 
-                    full_name = COALESCE(?, full_name),
-                    phone = COALESCE(?, phone),
-                    institution = COALESCE(?, institution),
-                    program = COALESCE(?, program),
-                    year = COALESCE(?, year),
-                    updated_at = CURRENT_TIMESTAMP
+            cursor.execute("""
+                UPDATE users
+                SET login_attempts = ?, locked_until = ?
                 WHERE id = ?
-            """, (
-                data.get("fullName"),
-                data.get("phone"),
-                data.get("institution"),
-                data.get("program"),
-                data.get("year"),
-                user_id
-            ))
+            """, (attempts, lock_time, user["id"]))
             conn.commit()
-            return True
+
+            logger.warning(f"Failed login {identifier} (attempt {attempts})")
+            return None
+
         except Exception as e:
-            print(f"Update error: {e}")
-            conn.rollback()
-            return False
+            logger.error(f"Authentication error: {e}")
+            return None
         finally:
             conn.close()
 
-    def change_password(self, user_id: int, current: str, new: str) -> bool:
+    # ---------- EXAM OPERATIONS ----------
+    def create_exam(self, title: str, description: str, questions: list, duration: int, created_by: int) -> Optional[int]:
         conn = self.get_connection()
+        cursor = conn.cursor()
         try:
-            row = conn.execute(
-                "SELECT password_hash FROM users WHERE id = ?",
-                (user_id,),
-            ).fetchone()
-    
-            if not row or not check_password_hash(row["password_hash"], current):
-                return False
-    
-            new_hash = generate_password_hash(new)
-            conn.execute("""
-                UPDATE users 
-                SET password_hash = ?, 
-                    updated_at = CURRENT_TIMESTAMP,
-                    password_changed_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (new_hash, user_id))
+            cursor.execute(
+                'INSERT INTO exams (title, description, questions, duration, created_by) VALUES (?, ?, ?, ?, ?)',
+                (title, description, json.dumps(questions), duration, created_by)
+            )
             conn.commit()
-            return True
-        finally:
-            conn.close()
-            
-    def get_student_results(self, user_id: int) -> list:
-        conn = self.get_connection()
-        try:
-            results = conn.execute("""
-                SELECT 
-                    er.id, er.score, er.status, er.completed_at,
-                    e.name, e.max_score, e.exam_date
-                FROM exam_results er
-                JOIN exams e ON er.exam_id = e.id
-                WHERE er.user_id = ? 
-                ORDER BY er.completed_at DESC
-                LIMIT 10
-            """, (user_id,)).fetchall()
-        
-            return [dict(row) for row in results]
+            exam_id = cursor.lastrowid
+            return exam_id
+        except Exception as e:
+            logger.error(f"Create exam failed: {e}")
+            return None
         finally:
             conn.close()
 
-    def get_student_stats(self, user_id: int) -> Dict:
+    def get_all_exams(self) -> List[Dict]:
         conn = self.get_connection()
-        try:
-            stats = conn.execute("""
-                SELECT 
-                    COUNT(*) as total_exams,
-                    AVG(er.score * 1.0) as avg_score,
-                    SUM(CASE WHEN er.status = 'Pass' THEN 1 ELSE 0 END) as passed_count
-                FROM exam_results er
-                WHERE er.user_id = ?
-            """, (user_id,)).fetchone()
-            
-            return dict(stats) if stats else {"total_exams": 0, "avg_score": 0, "passed_count": 0}
-        finally:
-            conn.close()
-            
-    def create_support_ticket(self, user_id: int, ticket_data: Dict) -> int:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, title, description, duration FROM exams')
+        exams = cursor.fetchall()
+        conn.close()
+        
+        result = []
+        for exam in exams:
+            result.append({
+                'id': exam['id'],
+                'title': exam['title'],
+                'description': exam['description'],
+                'duration': exam['duration']
+            })
+        return result
+
+    def get_exam_by_id(self, exam_id: int) -> Optional[Dict]:
         conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, title, questions, duration FROM exams WHERE id = ?', (exam_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return dict(row)
+        return None
+
+    # ---------- SESSION OPERATIONS ----------
+    def create_session(self, exam_id: int, user_id: int) -> Optional[int]:
+        conn = self.get_connection()
+        cursor = conn.cursor()
         try:
-            cur = conn.execute("""
-                INSERT INTO support_tickets (user_id, type, subject, message)
-                VALUES (?, ?, ?, ?)
-            """, (
-                user_id,
-                ticket_data["type"],
-                ticket_data["subject"],
-                ticket_data["message"]
-            ))
+            cursor.execute(
+                "INSERT INTO sessions (exam_id, user_id, status) VALUES (?, ?, 'active')",
+                (exam_id, user_id)
+            )
+            session_id = cursor.lastrowid
             conn.commit()
-            return cur.lastrowid
+            return session_id
+        except Exception as e:
+            logger.error(f"Create session failed: {e}")
+            return None
         finally:
             conn.close()
-            
-    def get_user_tickets(self, user_id: int) -> list:
+
+    def get_session(self, session_id: int, user_id: Optional[int] = None) -> Optional[Dict]:
         conn = self.get_connection()
-        try:
-            tickets = conn.execute("""
-                SELECT * FROM support_tickets 
-                WHERE user_id = ? 
-                ORDER BY created_at DESC 
-                LIMIT 10
-            """, (user_id,)).fetchall()
-            return [dict(row) for row in tickets]
-        finally:
-            conn.close()
-            
-    def submit_feedback(self, user_id: int, feedback_data: Dict) -> int:
-        conn = self.get_connection()
-        try:
-            cur = conn.execute("""
-                INSERT INTO feedback (user_id, rating, category, subject, message, suggestions)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                user_id,
-                feedback_data["rating"],
-                feedback_data["category"],
-                feedback_data["subject"],
-                feedback_data["message"],
-                feedback_data.get("suggestions", "")
-            ))
-            conn.commit()
-            return cur.lastrowid
-        finally:
-            conn.close()
-            
-    def get_user_feedback(self, user_id: int) -> list:
-        conn = self.get_connection()
-        try:
-            feedback = conn.execute("""
-                SELECT * FROM feedback 
-                WHERE user_id = ? 
-                ORDER BY created_at DESC 
-                LIMIT 10
-            """, (user_id,)).fetchall()
-            return [dict(row) for row in feedback]
-        finally:
-            conn.close()
-            
-    def get_student_dashboard_stats(self, user_id: int) -> Dict:
-        conn = self.get_connection()
-        try:
-            # Enrolled exams count
-            enrolled = conn.execute("""
-                SELECT COUNT(*) FROM exam_rooms er
-                JOIN exams e ON er.exam_id = e.id
-                WHERE er.user_id = ? AND er.status IN ('Ready', 'In Progress')
-            """, (user_id,)).fetchone()[0]
+        cursor = conn.cursor()
         
-            # Upcoming exams (next 7 days)
-            upcoming = conn.execute("""
-                SELECT COUNT(*) FROM exam_rooms er
-                JOIN exams e ON er.exam_id = e.id
-                WHERE er.user_id = ? AND date(e.exam_date) >= date('now') 
-                AND date(e.exam_date) <= date('now', '+7 days')
-            """, (user_id,)).fetchone()[0]
+        query = "SELECT * FROM sessions WHERE id = ?"
+        params = [session_id]
         
-            # Notifications (implement notifications table later)
-            otifications = 0
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+            
+        cursor.execute(query, tuple(params))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return dict(row)
+        return None
+
+    def get_full_session_details(self, session_id: int, user_id: int) -> Optional[Dict]:
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT s.answers, e.questions 
+            FROM sessions s 
+            JOIN exams e ON s.exam_id = e.id 
+            WHERE s.id = ? AND s.user_id = ?
+        ''', (session_id, user_id))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return dict(row)
+        return None
+
+    def update_session_answers(self, session_id: int, answers: dict):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('UPDATE sessions SET answers = ? WHERE id = ?', (json.dumps(answers), session_id))
+        conn.commit()
+        conn.close()
+
+    def complete_session(self, session_id: int, score: float):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE sessions 
+            SET completed_at = CURRENT_TIMESTAMP, status = 'completed', score = ?
+            WHERE id = ?
+        ''', (score, session_id))
+        conn.commit()
+        conn.close()
+
+    def update_suspicion_score(self, session_id: int, score_increase: int):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE sessions SET suspicion_score = suspicion_score + ? WHERE id = ?',
+            (score_increase, session_id)
+        )
+        conn.commit()
+        conn.close()
         
-            return {
-                "enrolled_exams": enrolled,
-                "upcoming_exams": upcoming,
-                "notifications": notifications
-            }
-        finally:
-            conn.close()
+    def get_active_sessions_with_details(self) -> List[Dict]:
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT s.id, u.username, e.title, s.suspicion_score, s.started_at
+            FROM sessions s
+            JOIN users u ON s.user_id = u.id
+            JOIN exams e ON s.exam_id = e.id
+            WHERE s.status = 'active'
+        ''')
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    # ---------- PROCTORING OPERATIONS ----------
+    def log_proctoring_event(self, session_id: int, event_type: str, severity: str, details: str):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO proctoring_events (session_id, event_type, severity, details) VALUES (?, ?, ?, ?)',
+            (session_id, event_type, severity, details)
+        )
+        conn.commit()
+        conn.close()
+
+    def get_recent_alerts(self, limit: int = 20) -> List[Dict]:
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(f'''
+            SELECT pe.event_type, pe.severity, pe.timestamp, u.username
+            FROM proctoring_events pe
+            JOIN sessions s ON pe.session_id = s.id
+            JOIN users u ON s.user_id = u.id
+            ORDER BY pe.timestamp DESC
+            LIMIT {limit}
+        ''')
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]

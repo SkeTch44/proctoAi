@@ -1,0 +1,41 @@
+{
+    "skill_id": "DESCRIPTIVE_GENERATION_V1",
+    "version": "1.0.0",
+    "format_type": "descriptive",
+    "description": "Generate long-answer essay questions with structured outlines",
+    "max_batch_size": 2,
+    "min_batch_size": 1,
+    "rag_chunks": 4,
+    "llm_params": {
+        "temperature": 0.5,
+        "max_tokens": 3072,
+        "format": "json"
+    },
+    "validation_schema": {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": [
+                "question",
+                "answer_outline"
+            ],
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 300
+                },
+                "answer_outline": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 7,
+                    "items": {
+                        "type": "string",
+                        "minLength": 10,
+                        "maxLength": 200
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,5 +1,9 @@
 export async function loginUser(credentials) {
+<<<<<<< HEAD
   const response = await fetch("http://localhost:5000/api/login", {
+=======
+  const response = await fetch("http://127.0.0.1:5000/api/login", {
+>>>>>>> rohan
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -18,7 +22,11 @@ export async function loginUser(credentials) {
 
 
 export async function registerUser(payload) {
+<<<<<<< HEAD
   const response = await fetch("http://localhost:5000/api/register", {
+=======
+  const response = await fetch("http://127.0.0.1:5000/api/register", {
+>>>>>>> rohan
     method: "POST",
     headers: {
       "Content-Type": "application/json",

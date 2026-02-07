@@ -7,6 +7,10 @@ PyJWT
 google-generativeai
 google-api-python-client
 sentence-transformers
+<<<<<<< HEAD
+=======
+faiss-cpu
+>>>>>>> rohan
 tqdm
 requests
 python-docx
@@ -18,3 +22,10 @@ Pillow
 mediapipe
 deepface
 dlib
+<<<<<<< HEAD
+=======
+reportlab
+flasgger
+celery
+redis
+>>>>>>> rohan

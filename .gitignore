@@ -1,65 +1,78 @@
-# Virtual environments
+#########################
+# Python Virtual Envs
+########################
 .venv/
 venv/
 env/
 ENV/
+backend/.venv/
 
-# Python
+########################
+# Python Cache & Artifacts
+########################
 __pycache__/
 *.py[cod]
-*$py.class# Python envs
-venv/
-env/
-.venv/
-venv*/
-ENV/
-
-# Python artifacts
-__pycache__/
-*.pyc
-*.pyo
-
-# IDEs / OS
-.vscode/
-.idea/
-*.swp
-.DS_Store
-Thumbs.db
-
-# OneDrive / sync dirs
-OneDrive/
-*.so
-.Python
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
+*$py.class
 .pytest_cache/
+.coverage
 htmlcov/
+.tox/
 .cache/
 *.egg-info/
 dist/
 build/
 
-# Node/React
+########################
+# ML / RAG Artifacts
+########################
+*.pt
+*.bin
+*.pkl
+faiss_index*
+metadata*
+yolov8*.pt
+backend/db/rag_store/
+
+########################
+# Databases
+########################
+*.db
+risk_timeline.db
+exam_platform.db
+*.db-wal
+*.db-shm
+
+########################
+# Environment Variables
+########################
+.env
+.env.*
+.env.local
+
+########################
+# Node / Frontend
+########################
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnp
 .pnp.js
-
-# Build outputs
 frontend/build/
 frontend/dist/
 frontend/.next/
 
-# Environment variables
-.env
-.env.local
-.env.*.local
+########################
+# IDEs & Editors
+########################
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# OS generated
+########################
+# OS Junk
+########################
 .DS_Store
 .DS_Store?
 ._*
@@ -68,31 +81,10 @@ frontend/.next/
 ehthumbs.db
 Thumbs.db
 
-# IDE/Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs
+########################
+# Logs & Temp
+########################
 *.log
 logs/
-
-*.db-wal
-*.db-shm
-
-# Temp files
 *.tmp
 *.temp
-exam_platform.db
-backend/.venv/
-.venv/
-
-
-
-*.bin
-*.pkl
-*.db
-*.pt
-backend/db/rag_store/
-backend/db/rag_strore/

@@ -6,7 +6,10 @@ export default function Register() {
   const navigate = useNavigate();
 
   const [username, setUsername] = useState("");
+<<<<<<< HEAD
   const [full_name, setFull_name] = useState("");
+=======
+>>>>>>> rohan
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState(localStorage.getItem("selected_role") || "student");
@@ -21,10 +24,18 @@ export default function Register() {
     setLoading(true);
 
     try {
+<<<<<<< HEAD
       // ✅ SEND fullName to backend
       const res = await registerUser({ username, full_name, email, password, role });
       setSuccess(res.message || "Registration successful");
 
+=======
+      const res = await registerUser({ username, email, password, role });
+      setSuccess(res.message || "Registration successful");
+
+      // Redirect to login after short delay
+      // clear selected role
+>>>>>>> rohan
       localStorage.removeItem("selected_role");
       setTimeout(() => {
         navigate("/login");
@@ -67,7 +78,11 @@ export default function Register() {
           {/* Username */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
+<<<<<<< HEAD
               Username *
+=======
+              Username
+>>>>>>> rohan
             </label>
             <input
               type="text"
@@ -83,6 +98,7 @@ export default function Register() {
             />
           </div>
 
+<<<<<<< HEAD
           {/* FULL NAME - NEW REQUIRED FIELD ✅ */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
@@ -107,6 +123,12 @@ export default function Register() {
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
               Email *
+=======
+          {/* Email */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
+              Email
+>>>>>>> rohan
             </label>
             <input
               type="email"
@@ -125,7 +147,11 @@ export default function Register() {
           {/* Password */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
+<<<<<<< HEAD
               Password *
+=======
+              Password
+>>>>>>> rohan
             </label>
             <input
               type="password"

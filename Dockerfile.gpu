@@ -1,0 +1,24 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY backend/requirement.txt .
+RUN pip install --no-cache-dir -r requirement.txt
+
+# Install GPU support (PyTorch with CUDA 11.8)
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+COPY . .
+
+# Environment defaults
+ENV PYTHONUNBUFFERED=1
+
+# Worker command is set in docker-compose.yml
+CMD ["celery", "-A", "backend.tasks", "worker", "--loglevel=info"]

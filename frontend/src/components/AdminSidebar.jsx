@@ -10,7 +10,11 @@ const navItems = [
   { label: "Document Upload", path: "documentUpload" },
   { label: "AI Question Generator", path: "analyzer" },
   { label: "Test creation", path: "test-creator" },
+<<<<<<< HEAD
   { label: "Monitoring", path: "admin-monitoring" },
+=======
+  { label: "Live monitoring", path: "admin-monitoring" },
+>>>>>>> rohan
   { label: "Proctoring Logs", path: "admin-logs" },
   { label: "Analytics", path: "admin-analytics" },
   { label: "Reports", path: "compiled-reports" },

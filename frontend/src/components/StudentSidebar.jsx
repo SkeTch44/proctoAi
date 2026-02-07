@@ -11,6 +11,8 @@ const navItems = [
   { label: "Results", path: "/student/results" },
   { label: "Profile", path: "/student/profile" },
   { label: "Support", path: "/student/support" },
+  { label: "Feedback", path: "/student/feedback" },
+
 ];
 
 export default function StudentSidebar({ children }) {

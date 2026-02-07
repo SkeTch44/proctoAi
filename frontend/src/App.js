@@ -7,7 +7,7 @@ import ThemeToggle from "./components/ThemeToggle";
 import SkeletonLoader from "./components/Loader";
 import Layout from "./pages/AdminPages/Layout";
 import AdminRoute from "./routes/AdminRoute";
-
+import Feedback from "./pages/StudentPages/Feedback";
 import LogIn from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import Register from "./pages/Register";
@@ -20,9 +20,11 @@ import ProctoringLogs from "./pages/AdminPages/ProctoringLogs";
 import Analytics from "./pages/AdminPages/Analytics";
 import Reports from "./pages/AdminPages/Reports";
 import AdminDashboard from "./pages/AdminPages/AdminDashboard";
+import AdminRegister from "./pages/AdminRegister"
+import AdminLogin from "./pages/AdminLogin"
 import StudentDashboard from "./pages/StudentPages/StudentDashboard";
 import StudentRoute from "./routes/StudentRoute";
-import StudentLayout from "./pages/StudentPages/StudentLayout"; // Create this file
+import StudentLayout from "./pages/StudentPages/StudentLayout"; 
 import StartExam from "./pages/StudentPages/StartExam";
 import Results from "./pages/StudentPages/Results";
 import Profile from "./pages/StudentPages/Profile";
@@ -89,7 +91,8 @@ function App() {
               <Route path="/home" element={<Home />} />
               <Route path="/login" element={<LogIn />} />
               <Route path="/register" element={<Register />} />
-
+              <Route path="/admin-register" element={<AdminRegister />} />
+              <Route path="/admin-login" element={<AdminLogin />} />
               {/* Admin dashboard layout with sidebar + nested pages */}
               <Route
                 path="/AdminDashboard"
@@ -124,6 +127,7 @@ function App() {
                 <Route path="profile" element={<Profile />} />
                 <Route path="support" element={<Support />} />
                 <Route path="exam-room/:examId" element={<ExamRoom/>}/>
+                <Route path="/student/feedback" element={<Feedback />}/>
               </Route>
 
               {/* Fallback */}

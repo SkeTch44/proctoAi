@@ -78,6 +78,9 @@ Thumbs.db
 *.log
 logs/
 
+*.db-wal
+*.db-shm
+
 # Temp files
 *.tmp
 *.temp

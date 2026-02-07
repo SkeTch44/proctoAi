@@ -327,6 +327,83 @@ class QuestionBankManager:
         finally:
             conn.close()
     
+    def bulk_create_questions(self, questions: List[Question], bank_id: int = None) -> Dict[str, Any]:
+        """
+        Bulk create multiple questions in a single transaction.
+        
+        Args:
+            questions: List of Question objects to create
+            bank_id: Optional bank ID to add all questions to
+            
+        Returns:
+            Dict with 'created_count', 'failed_count', 'question_ids'
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        created_ids = []
+        failed_count = 0
+        
+        try:
+            for question in questions:
+                try:
+                    content_hash = self._generate_content_hash(question)
+                    
+                    cursor.execute('''
+                        INSERT INTO questions (
+                            uuid, title, question_text, question_type, difficulty, points,
+                            time_limit, subject, topic, subtopic, learning_objective,
+                            bloom_level, question_data, explanation, hints, tags,
+                            created_by, status, content_hash
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        question.uuid, question.title, question.question_text,
+                        question.question_type, question.difficulty, question.points,
+                        question.time_limit, question.subject, question.topic,
+                        question.subtopic, question.learning_objective, question.bloom_level,
+                        json.dumps(question.question_data), question.explanation,
+                        json.dumps(question.hints), json.dumps(question.tags),
+                        question.created_by, question.status, content_hash
+                    ))
+                    
+                    question_id = cursor.lastrowid
+                    created_ids.append(question_id)
+                    
+                    # Add to bank if specified
+                    if bank_id and question_id:
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO question_bank_items (bank_id, question_id, added_by)
+                            VALUES (?, ?, ?)
+                        ''', (bank_id, question_id, question.created_by))
+                        
+                except sqlite3.IntegrityError as e:
+                    logger.warning(f"Duplicate question skipped: {e}")
+                    failed_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to create question: {e}")
+                    failed_count += 1
+            
+            conn.commit()
+            logger.info(f"Bulk created {len(created_ids)} questions, {failed_count} failed")
+            
+            return {
+                'created_count': len(created_ids),
+                'failed_count': failed_count,
+                'question_ids': created_ids
+            }
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Bulk creation failed: {e}")
+            return {
+                'created_count': 0,
+                'failed_count': len(questions),
+                'question_ids': [],
+                'error': str(e)
+            }
+        finally:
+            conn.close()
+    
     def get_question(self, question_id: int) -> Optional[Question]:
         """Get a question by ID"""
         conn = sqlite3.connect(self.db_path)

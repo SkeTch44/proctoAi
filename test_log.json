@@ -1,0 +1,20 @@
+[
+  {
+    "timestamp": "2026-02-07T11:11:13.378789",
+    "session_id": "test_session_123",
+    "alert": "PASTE_DETECTED",
+    "score": 100
+  },
+  {
+    "timestamp": "2026-02-07T11:11:13.390481",
+    "session_id": "test_session_123",
+    "alert": "TAB_SWITCH",
+    "score": 80.0
+  },
+  {
+    "timestamp": "2026-02-07T11:11:13.438311",
+    "session_id": "test_session_123",
+    "alert": "COPY_PASTE",
+    "score": 60.0
+  }
+]

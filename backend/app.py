@@ -13,14 +13,14 @@ from werkzeug.utils import secure_filename
 from flasgger import Swagger
 from backend.utils.auth import token_required
 
-from questions import QuestionGenerator
-from grading import GradingEngine
+from backend.questions import QuestionGenerator
+from backend.grading import GradingEngine
 
 from backend.utils.pdf_parser import parse_pdf
 from backend.utils.docx_parser import parse_docx
 from backend.utils.report_export import generate_exam_report
-from config import Config
-from db.database import DatabaseManager
+from backend.config import Config
+from backend.db.database import DatabaseManager
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -41,12 +41,16 @@ socketio = SocketIO(
 # Initialize components
 question_generator = QuestionGenerator()
 grading_engine = GradingEngine()
-from question_bank import QuestionBankManager, Question # Import Question models
+from backend.question_bank import QuestionBankManager, Question # Import Question models
 
 db_manager = DatabaseManager('sqlite:///exam_platform.db')
 qb_manager = QuestionBankManager('exam_platform.db')
 
 from backend.celery_app import celery
+
+# Initialize CheatDetector
+from backend.models.cheat_detector import CheatDetector
+cheat_detector = CheatDetector()
 
 # ... [Keep other routes] ...
 
@@ -465,14 +469,17 @@ def on_join_session(data):
         join_room(f'session_{session_id}')
         emit('status', {'message': f'Joined session {session_id}'})
 
-<<<<<<< HEAD
-@socketio.on('proctoring_data')
-def handle_proctoring_data(data):
-    # Process real-time proctoring data
+@app.route('/api/proctoring_frame', methods=['POST'])
+@jwt_required()
+def handle_proctoring_frame():
+    data = request.get_json()
     session_id = data.get('session_id')
     frame_data = data.get('frame_data')
     
-    if session_id and frame_data:
+    if not session_id or not frame_data:
+        return jsonify({'message': 'Missing session_id or frame_data'}), 400
+
+    try:
         # Analyze frame for suspicious activity
         analysis_result = cheat_detector.analyze_frame(frame_data)
         
@@ -484,15 +491,237 @@ def handle_proctoring_data(data):
                 'confidence': analysis_result.get('confidence'),
                 'timestamp': datetime.now().isoformat()
             }, room='admins')
+            
+            # Also emit to the specific session room so the student gets a warning if needed
+            socketio.emit('proctoring_alert', {
+                'session_id': session_id,
+                'alert_type': analysis_result.get('alert_type'),
+                'details': 'Suspicious behavior detected'
+            }, room=f'session_{session_id}')
+
+        return jsonify(analysis_result), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'message': 'Internal server error processing frame'}), 500
+
+
+# ==================== QUESTION GENERATION ENDPOINTS ====================
+
+from backend.services.question_generation_service import get_question_generation_service
+
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+@app.route('/api/questions/generate/ai', methods=['POST'])
+@token_required
+def generate_questions_ai(current_user):
+    """
+    Generate questions using pure AI (no document upload)
+    ---
+    tags:
+      - Questions
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            topic:
+              type: string
+              required: true
+            count:
+              type: integer
+              default: 10
+            difficulty:
+              type: string
+              enum: [easy, medium, hard, expert]
+            types:
+              type: array
+              items:
+                type: string
+            bank_id:
+              type: integer
+    responses:
+      200:
+        description: Questions generated successfully
+    """
+    data = request.get_json()
+    
+    topic = data.get('topic')
+    if not topic:
+        return jsonify({'success': False, 'message': 'Topic is required'}), 400
+    
+    count = data.get('count', 10)
+    difficulty = data.get('difficulty', 'medium')
+    question_types = data.get('types', ['mcq'])
+    bank_id = data.get('bank_id')
+    
+    try:
+        service = get_question_generation_service()
+        result = service.generate_pure_ai(
+            topic=topic,
+            count=count,
+            difficulty=difficulty,
+            question_types=question_types,
+            bank_id=bank_id,
+            user_id=current_user.get('id')
+        )
+        return jsonify(result), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/questions/generate/rag', methods=['POST'])
+@token_required
+def generate_questions_rag(current_user):
+    """
+    Generate questions from uploaded document using RAG
+    ---
+    tags:
+      - Questions
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+      - in: formData
+        name: topic
+        type: string
+      - in: formData
+        name: count
+        type: integer
+      - in: formData
+        name: difficulty
+        type: string
+      - in: formData
+        name: bank_id
+        type: integer
+    responses:
+      200:
+        description: Questions generated from document
+    """
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': 'No file uploaded'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'message': 'No file selected'}), 400
+    
+    if not allowed_file(file.filename):
+        return jsonify({'success': False, 'message': 'File type not allowed. Use PDF or DOCX'}), 400
+    
+    # Save file temporarily
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(file_path)
+    
+    try:
+        topic = request.form.get('topic', 'Document Content')
+        count = int(request.form.get('count', 10))
+        difficulty = request.form.get('difficulty', 'medium')
+        question_types = request.form.getlist('types') or ['mcq']
+        bank_id = request.form.get('bank_id')
+        if bank_id:
+            bank_id = int(bank_id)
+        
+        service = get_question_generation_service()
+        result = service.generate_rag(
+            file_path=file_path,
+            topic=topic,
+            count=count,
+            difficulty=difficulty,
+            question_types=question_types,
+            bank_id=bank_id,
+            user_id=current_user.get('id')
+        )
+        return jsonify(result), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        # Cleanup uploaded file
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+
+@app.route('/api/questions/scan', methods=['POST'])
+@token_required
+def scan_questions_pdf(current_user):
+    """
+    Scan existing question PDF and extract questions
+    ---
+    tags:
+      - Questions
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+      - in: formData
+        name: topic
+        type: string
+      - in: formData
+        name: bank_id
+        type: integer
+    responses:
+      200:
+        description: Questions extracted from PDF
+    """
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': 'No file uploaded'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'message': 'No file selected'}), 400
+    
+    if not allowed_file(file.filename):
+        return jsonify({'success': False, 'message': 'File type not allowed. Use PDF'}), 400
+    
+    # Save file temporarily
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(file_path)
+    
+    try:
+        topic = request.form.get('topic', 'Extracted Questions')
+        bank_id = request.form.get('bank_id')
+        if bank_id:
+            bank_id = int(bank_id)
+        
+        service = get_question_generation_service()
+        result = service.scan_pdf(
+            file_path=file_path,
+            topic=topic,
+            bank_id=bank_id,
+            user_id=current_user.get('id')
+        )
+        return jsonify(result), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        # Cleanup uploaded file
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
 
 if __name__ == '__main__':
-    init_db()
-=======
-
-
-
-
-if __name__ == '__main__':
-    db_manager.init_database()
->>>>>>> rohan
+    with app.app_context():
+        db_manager.init_database()
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

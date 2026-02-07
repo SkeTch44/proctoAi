@@ -107,3 +107,80 @@ class LLMRunner:
             logger.error(f"LLMRunner: Critical Error for batch {batch_config['batch_id']}: {e}")
             return None
 
+    @staticmethod
+    def execute(packet: "SkillPacket", context: str = "") -> Optional[Dict[str, Any]]:
+        """
+        Execute a compiled SkillPacket against Ollama.
+        
+        Args:
+            packet: Compiled SkillPacket from SkillCompiler
+            context: Optional context to append (if not already in prompt)
+            
+        Returns:
+            Parsed JSON result or None
+        """
+        # Deferred import to avoid circular dependencies
+        from backend.utils.skill_compiler import SkillPacket
+        import requests
+        import json
+        import re
+        from typing import Dict, Any, Optional
+
+        if not isinstance(packet, SkillPacket):
+            logger.error(f"LLMRunner: Invalid packet type: {type(packet)}")
+            return None
+            
+        # Extract params
+        llm_params = packet.llm_params
+        temperature = llm_params.get('temperature', 0.7)
+        max_tokens = llm_params.get('max_tokens', 2048)
+        
+        # Construct payload
+        payload = {
+            "model": Config.OLLAMA_MODEL,
+            "prompt": packet.system_prompt,  # Already substituted
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+                "top_p": 0.9
+            },
+            "format": "json"
+        }
+        
+        try:
+            logger.info(f"LLMRunner: Executing Skill {packet.skill_id} ({packet.format_type})...")
+            
+            response = requests.post(
+                f"{Config.OLLAMA_BASE_URL}/api/generate",
+                json=payload,
+                timeout=120
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Ollama returned {response.status_code}: {response.text[:500]}")
+                return None
+                
+            response.raise_for_status()
+            result = response.json()
+            raw_text = result.get('response', '')
+            
+            # Use validation schema if we had a Validator, but for now just JSON parse
+            try:
+                parsed = json.loads(raw_text)
+                return parsed
+            except json.JSONDecodeError:
+                # Try to extract JSON from text if raw parse fails
+                json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+                if json_match:
+                    try:
+                        return json.loads(json_match.group(0))
+                    except:
+                        pass
+                logger.error(f"LLMRunner: Failed to parse JSON for skill {packet.skill_id}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"LLMRunner: Execution error for skill {packet.skill_id}: {e}")
+            return None
+

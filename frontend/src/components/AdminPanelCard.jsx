@@ -8,13 +8,8 @@ export default function AdminPanelCard({ loading = false }) {
 
   const handleClick = () => {
     // select admin role and navigate to registration
-<<<<<<< HEAD
-    localStorage.setItem("selected_role","admin");
-    navigate("/admin-register");
-=======
     localStorage.setItem("selected_role", "admin");
-    navigate("/register");
->>>>>>> rohan
+    navigate("/admin-register");
   };
 
   if (loading) return <SkeletonLoader type="card" />;
@@ -42,11 +37,7 @@ export default function AdminPanelCard({ loading = false }) {
         </div>
 
         <div
-<<<<<<< HEAD
           onClick={() => navigate('/admin-login')}
-=======
-          onClick={() => navigate('/login')}
->>>>>>> rohan
           className="cursor-pointer p-3 rounded-lg border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 dark:bg-transparent dark:text-red-400 dark:border-red-600 text-sm font-medium text-center"
         >
           Already have an admin account? Login

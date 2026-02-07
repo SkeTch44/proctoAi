@@ -1,11 +1,4 @@
 import { io } from 'socket.io-client';
-<<<<<<< HEAD
-let socket = null;
-
-export function getSocket() {
-  if (socket) return socket;
-  socket = io('http://localhost:5000', { transports: ['websocket', 'polling'] });
-=======
 
 let socket = null;
 let connectionListeners = [];
@@ -54,7 +47,6 @@ export function getSocket() {
     notifyConnectionListeners('reconnect_failed', null);
   });
 
->>>>>>> rohan
   return socket;
 }
 
@@ -62,10 +54,6 @@ export function disconnectSocket() {
   if (socket) {
     socket.disconnect();
     socket = null;
-<<<<<<< HEAD
-  }
-}
-=======
     connectionListeners = [];
   }
 }
@@ -90,4 +78,3 @@ function notifyConnectionListeners(status, data) {
 export function isConnected() {
   return socket?.connected || false;
 }
->>>>>>> rohan

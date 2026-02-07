@@ -6,10 +6,7 @@ export default function Register() {
   const navigate = useNavigate();
 
   const [username, setUsername] = useState("");
-<<<<<<< HEAD
-  const [full_name, setFull_name] = useState("");
-=======
->>>>>>> rohan
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState(localStorage.getItem("selected_role") || "student");
@@ -24,18 +21,11 @@ export default function Register() {
     setLoading(true);
 
     try {
-<<<<<<< HEAD
-      // ✅ SEND fullName to backend
-      const res = await registerUser({ username, full_name, email, password, role });
-      setSuccess(res.message || "Registration successful");
-
-=======
       const res = await registerUser({ username, email, password, role });
       setSuccess(res.message || "Registration successful");
 
       // Redirect to login after short delay
       // clear selected role
->>>>>>> rohan
       localStorage.removeItem("selected_role");
       setTimeout(() => {
         navigate("/login");
@@ -78,11 +68,7 @@ export default function Register() {
           {/* Username */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
-<<<<<<< HEAD
-              Username *
-=======
               Username
->>>>>>> rohan
             </label>
             <input
               type="text"
@@ -98,37 +84,10 @@ export default function Register() {
             />
           </div>
 
-<<<<<<< HEAD
-          {/* FULL NAME - NEW REQUIRED FIELD ✅ */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
-              Full Name *
-            </label>
-            <input
-              type="text"
-              value={full_name}
-              onChange={(e) => setFull_name(e.target.value)}
-              required
-              placeholder="John Doe"
-              className="w-full px-4 py-3 rounded-xl border-2 border-gray-300 dark:border-gray-600
-                         bg-gray-50 dark:bg-[#1A1D21]
-                         text-gray-900 dark:text-gray-100
-                         focus:border-[#6D28D9] dark:focus:border-[#10B981]
-                         focus:ring-2 focus:ring-[#6D28D9]/20 dark:focus:ring-[#10B981]/20
-                         transition-all"
-            />
-          </div>
-
-          {/* Email */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
-              Email *
-=======
           {/* Email */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
               Email
->>>>>>> rohan
             </label>
             <input
               type="email"
@@ -147,11 +106,7 @@ export default function Register() {
           {/* Password */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
-<<<<<<< HEAD
-              Password *
-=======
               Password
->>>>>>> rohan
             </label>
             <input
               type="password"

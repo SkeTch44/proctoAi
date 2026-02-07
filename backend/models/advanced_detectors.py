@@ -43,6 +43,14 @@ except:
     system_monitoring_available = False
     logger.warning("System monitoring libraries not available")
 
+# YOLOv8 Object Detection
+try:
+    from ultralytics import YOLO
+    ultralytics_available = True
+except ImportError:
+    ultralytics_available = False
+    logger.warning("Ultralytics not available for object detection")
+
 
 # ==========================================
 # 1. Head Pose Engine
@@ -451,3 +459,68 @@ class SystemMonitor:
         except Exception as e:
             logger.error(f"Network stats error: {e}")
             return {'bytes_sent': 0, 'bytes_recv': 0}
+
+
+# ==========================================
+# 6. Object Detector (YOLOv8)
+# ==========================================
+class ObjectDetector:
+    """Detects objects like phones, books using YOLOv8"""
+    
+    def __init__(self):
+        self.model = None
+        if ultralytics_available:
+            try:
+                # Load a pretrained YOLOv8n model
+                # It will download automatically on first run if not present
+                self.model = YOLO("yolov8n.pt")
+                # Suppress logging
+                logging.getLogger("ultralytics").setLevel(logging.WARNING)
+                logger.info("ObjectDetector (YOLOv8) initialized")
+            except Exception as e:
+                logger.error(f"Failed to load YOLOv8 model: {e}")
+
+    def detect_objects(self, frame: np.ndarray) -> Dict[str, Any]:
+        """
+        Detect objects in frame
+        Returns: {'found': ['cell phone', 'book'], 'scores': {...}}
+        """
+        if not self.model:
+            return {'found': [], 'scores': {}, 'count': 0}
+            
+        try:
+            # Predict
+            results = self.model.predict(frame, verbose=False, conf=0.4)
+            
+            found_objects = []
+            scores = {}
+            
+            # Map of class IDs to names (YOLOv8 COCO)
+            # 67: cell phone, 73: book, 0: person, 63: laptop
+            target_classes = {
+                67: 'cell phone',
+                73: 'book',
+                # 63: 'laptop', # Laptop might be normal
+                # 0: 'person' # Handled by face detection usually
+            }
+            
+            for r in results:
+                for box in r.boxes:
+                    cls_id = int(box.cls[0])
+                    conf = float(box.conf[0])
+                    
+                    if cls_id in target_classes:
+                        obj_name = target_classes[cls_id]
+                        if obj_name not in found_objects:
+                            found_objects.append(obj_name)
+                            scores[obj_name] = conf
+            
+            return {
+                'found': found_objects,
+                'scores': scores,
+                'count': len(found_objects)
+            }
+            
+        except Exception as e:
+            logger.error(f"Object detection error: {e}")
+            return {'found': [], 'scores': {}, 'count': 0}

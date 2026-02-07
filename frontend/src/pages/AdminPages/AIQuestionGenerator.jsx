@@ -1,119 +1,320 @@
 // src/pages/AdminPages/AIQuestionGenerator.jsx
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
+import { generateQuestionsAI, generateQuestionsRAG, scanQuestionsPDF } from "../../services/questionApi";
+
+const MODES = {
+  AI: 'ai',
+  RAG: 'rag',
+  SCAN: 'scan'
+};
+
+const MODE_INFO = {
+  [MODES.AI]: {
+    title: '🤖 Pure AI',
+    description: 'Generate questions from topic using AI',
+    icon: '🤖'
+  },
+  [MODES.RAG]: {
+    title: '📄 RAG + Doc',
+    description: 'Upload document → AI generates questions',
+    icon: '📄'
+  },
+  [MODES.SCAN]: {
+    title: '📋 PDF Scan',
+    description: 'Extract existing questions from PDF',
+    icon: '📋'
+  }
+};
 
 export default function AIQuestionGenerator() {
-  const [questionType, setQuestionType] = useState("");
-  const [noOfQuestions, setNoOfQuestions] = useState("");
-  const [level, setLevel] = useState("");
+  const [activeMode, setActiveMode] = useState(MODES.AI);
+  const [topic, setTopic] = useState("");
+  const [questionType, setQuestionType] = useState("mcq");
+  const [noOfQuestions, setNoOfQuestions] = useState("10");
+  const [level, setLevel] = useState("medium");
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
 
-  const handleGenerate = () => {
-    console.log({ questionType, noOfQuestions, level });
-    // Generate questions logic here
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      setError(null);
+    }
+  };
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      let response;
+
+      if (activeMode === MODES.AI) {
+        if (!topic) {
+          throw new Error('Topic is required');
+        }
+        response = await generateQuestionsAI({
+          topic,
+          count: parseInt(noOfQuestions),
+          difficulty: level,
+          types: [questionType]
+        });
+      }
+      else if (activeMode === MODES.RAG) {
+        if (!file) {
+          throw new Error('Please upload a document');
+        }
+        response = await generateQuestionsRAG(file, {
+          topic: topic || 'Document Content',
+          count: parseInt(noOfQuestions),
+          difficulty: level,
+          types: [questionType]
+        });
+      }
+      else if (activeMode === MODES.SCAN) {
+        if (!file) {
+          throw new Error('Please upload a question PDF');
+        }
+        response = await scanQuestionsPDF(file, {
+          topic: topic || 'Extracted Questions'
+        });
+      }
+
+      setResult(response);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setTopic("");
+    setFile(null);
+    setResult(null);
+    setError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-8">
+    <div className="max-w-3xl mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="text-center">
         <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
           AI Question Generator
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Generate smart questions instantly with AI
+          Generate or extract questions with 3 powerful modes
         </p>
       </div>
 
-      {/* Form Card */}
-      <div className="bg-white dark:bg-[#171A1D] border border-[#D1D5DB] dark:border-[#374151] rounded-2xl p-8 shadow-xl">
-        <div className="space-y-6">
-          {/* Question Type */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
-              Question Type
-            </label>
-            <select
-              value={questionType}
-              onChange={(e) => setQuestionType(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border-2 border-[#D1D5DB] dark:border-[#374151] 
-                         bg-[#F9FAFB] dark:bg-[#1A1D21] 
-                         text-gray-900 dark:text-gray-100
-                         focus:border-[#6D28D9] dark:focus:border-[#10B981] 
-                         focus:ring-2 focus:ring-[#6D28D9]/20 dark:focus:ring-[#10B981]/20
-                         transition-all"
-            >
-              <option value="">Select type...</option>
-              <option value="mcq">Multiple Choice (MCQ)</option>
-              <option value="short">Short Answer</option>
-              <option value="long">Long Answer</option>
-              <option value="truefalse">True/False</option>
-            </select>
-          </div>
+      {/* Mode Tabs */}
+      <div className="flex gap-2 justify-center">
+        {Object.entries(MODE_INFO).map(([mode, info]) => (
+          <button
+            key={mode}
+            onClick={() => { setActiveMode(mode); resetForm(); }}
+            className={`px-4 py-3 rounded-xl font-medium transition-all ${activeMode === mode
+                ? 'bg-blue-600 text-white shadow-lg scale-105'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+          >
+            <span className="text-xl mr-2">{info.icon}</span>
+            {info.title}
+          </button>
+        ))}
+      </div>
 
-          {/* Number of Questions */}
+      {/* Mode Description */}
+      <div className="text-center text-sm text-gray-500 dark:text-gray-400">
+        {MODE_INFO[activeMode].description}
+      </div>
+
+      {/* Form Card */}
+      <div className="bg-white dark:bg-[#171A1D] border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
+        <div className="space-y-5">
+
+          {/* Topic Input - Always shown */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
-              Number of Questions
+              {activeMode === MODES.SCAN ? 'Topic/Category Name' : 'Topic'}
             </label>
             <input
-              type="number"
-              min="1"
-              max="50"
-              value={noOfQuestions}
-              onChange={(e) => setNoOfQuestions(e.target.value)}
-              placeholder="e.g. 10"
-              className="w-full px-4 py-3 rounded-xl border-2 border-[#D1D5DB] dark:border-[#374151] 
-                         bg-[#F9FAFB] dark:bg-[#1A1D21] 
-                         text-gray-900 dark:text-gray-100
-                         focus:border-[#6D28D9] dark:focus:border-[#10B981] 
-                         focus:ring-2 focus:ring-[#6D28D9]/20 dark:focus:ring-[#10B981]/20
-                         transition-all"
+              type="text"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder={activeMode === MODES.AI ? "e.g. Machine Learning Basics" : "e.g. Physics Chapter 3"}
+              className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                         bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100
+                         focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
             />
           </div>
 
-          {/* Difficulty Level */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
-              Difficulty Level
-            </label>
-            <select
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border-2 border-[#D1D5DB] dark:border-[#374151] 
-                         bg-[#F9FAFB] dark:bg-[#1A1D21] 
-                         text-gray-900 dark:text-gray-100
-                         focus:border-[#6D28D9] dark:focus:border-[#10B981] 
-                         focus:ring-2 focus:ring-[#6D28D9]/20 dark:focus:ring-[#10B981]/20
-                         transition-all"
-            >
-              <option value="">Select level...</option>
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-            </select>
-          </div>
+          {/* File Upload - For RAG and SCAN modes */}
+          {(activeMode === MODES.RAG || activeMode === MODES.SCAN) && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
+                Upload {activeMode === MODES.SCAN ? 'Question PDF' : 'Document (PDF/DOCX)'}
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.doc"
+                  onChange={handleFileChange}
+                  className="flex-1 px-4 py-3 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 
+                             bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100
+                             file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0
+                             file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900 dark:file:text-blue-200
+                             hover:border-blue-400 transition-all cursor-pointer"
+                />
+              </div>
+              {file && (
+                <p className="mt-2 text-sm text-green-600 dark:text-green-400">
+                  ✓ {file.name} selected
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Question Type & Count - For AI and RAG modes */}
+          {activeMode !== MODES.SCAN && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
+                  Question Type
+                </label>
+                <select
+                  value={questionType}
+                  onChange={(e) => setQuestionType(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                             bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100
+                             focus:border-blue-500 transition-all"
+                >
+                  <option value="mcq">Multiple Choice (MCQ)</option>
+                  <option value="short_answer">Short Answer</option>
+                  <option value="essay">Essay / Long Answer</option>
+                  <option value="true_false">True/False</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
+                  Number of Questions
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={noOfQuestions}
+                  onChange={(e) => setNoOfQuestions(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                             bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100
+                             focus:border-blue-500 transition-all"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Difficulty Level - For AI and RAG modes */}
+          {activeMode !== MODES.SCAN && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-100 mb-2">
+                Difficulty Level
+              </label>
+              <div className="flex gap-3">
+                {['easy', 'medium', 'hard', 'expert'].map((lv) => (
+                  <button
+                    key={lv}
+                    onClick={() => setLevel(lv)}
+                    className={`flex-1 py-2 rounded-lg font-medium capitalize transition-all ${level === lv
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'
+                      }`}
+                  >
+                    {lv}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Generate Button */}
-      <div className="flex justify-center mt-6">
-        <div className="bg-gradient-to-r from-purple-700 via-teal-500 to-white dark:from-green-500 dark:via-blue-500 dark:to-green-400 p-[3px] rounded-xl">
-          <button
-            onClick={handleGenerate}
-            disabled={!questionType || !noOfQuestions || !level}
-            className="
-        w-full max-w-md px-8 py-4 rounded-2xl text-lg font-semibold shadow-xl
-        bg-blue-500 hover:bg-blue-600 text-white
-        dark:bg-blue-700 dark:hover:bg-blue-500 dark:text-gray-100
-        focus:ring-4 focus:ring-[#6D28D9]/30 dark:focus:ring-[#10B981]/30
-        transform hover:scale-[1.02] active:scale-[0.98]
-        disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
-        transition-all duration-200
-      "
-          >
-            Generate Questions
-          </button>
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl p-4 text-red-700 dark:text-red-300">
+          ⚠️ {error}
         </div>
+      )}
+
+      {/* Generate Button */}
+      <div className="flex justify-center">
+        <button
+          onClick={handleGenerate}
+          disabled={loading || (activeMode === MODES.AI && !topic) || ((activeMode === MODES.RAG || activeMode === MODES.SCAN) && !file)}
+          className={`px-8 py-4 rounded-xl text-lg font-semibold shadow-lg transition-all
+            ${loading
+              ? 'bg-gray-400 cursor-wait'
+              : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700'}
+            text-white disabled:opacity-50 disabled:cursor-not-allowed
+            transform hover:scale-[1.02] active:scale-[0.98]`}
+        >
+          {loading ? (
+            <span className="flex items-center gap-2">
+              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Generating...
+            </span>
+          ) : activeMode === MODES.SCAN ? 'Extract Questions' : 'Generate Questions'}
+        </button>
       </div>
+
+      {/* Results Display */}
+      {result && (
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold text-green-800 dark:text-green-200">
+              ✅ {result.message || 'Questions Generated!'}
+            </h3>
+            <span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm">
+              {result.count || result.questions?.length || 0} questions
+            </span>
+          </div>
+
+          {/* Preview first few questions */}
+          <div className="space-y-3 max-h-60 overflow-y-auto">
+            {result.questions?.slice(0, 5).map((q, i) => (
+              <div key={i} className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-600">
+                <p className="font-medium text-gray-800 dark:text-gray-200">
+                  {i + 1}. {q.question_text || q.question || 'Question text'}
+                </p>
+                {q.question_data?.options && (
+                  <div className="mt-2 pl-4 text-sm text-gray-600 dark:text-gray-400">
+                    {Object.entries(q.question_data.options).map(([key, val]) => (
+                      <div key={key}>{key}) {val}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {result.questions?.length > 5 && (
+              <p className="text-gray-500 text-center">
+                ... and {result.questions.length - 5} more questions
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

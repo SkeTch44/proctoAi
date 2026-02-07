@@ -3,12 +3,12 @@ import logging
 from datetime import datetime
 from flask_socketio import SocketIO
 from backend.celery_app import celery
-from models.cheat_detector import CheatDetector
+from backend.models.cheat_detector import CheatDetector
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
-from db.database import DatabaseManager
+from backend.db.database import DatabaseManager
 
 # Initialize dependencies
 redis_url = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')

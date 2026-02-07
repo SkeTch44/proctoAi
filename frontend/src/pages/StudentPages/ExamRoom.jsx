@@ -2,10 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getToken } from "../../utils/authStorage";
-<<<<<<< HEAD
-=======
 import { getSocket, onConnectionChange } from "../../services/socket";
->>>>>>> rohan
 
 export default function ExamRoom() {
   const navigate = useNavigate();
@@ -35,20 +32,12 @@ export default function ExamRoom() {
   const fetchExam = async () => {
     const token = getToken();
     try {
-<<<<<<< HEAD
-      const res = await fetch(`http://localhost:5000/api/exams/${examId}`, {
-=======
       const res = await fetch(`http://127.0.0.1:5000/api/exams/${examId}`, {
->>>>>>> rohan
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
-<<<<<<< HEAD
-      
-=======
 
->>>>>>> rohan
       setExam(data);
       setTimeLeft(data.duration * 60); // Convert minutes to seconds
     } catch (err) {
@@ -61,31 +50,20 @@ export default function ExamRoom() {
   useEffect(() => {
     const startCamera = async () => {
       try {
-<<<<<<< HEAD
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: 320, height: 240, facingMode: "user" },
-          audio: true 
-=======
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 320, height: 240, facingMode: "user" },
           audio: true
->>>>>>> rohan
         });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           setProctoringStatus("active");
         }
 
-<<<<<<< HEAD
-        // Send frames every 2 seconds for AI analysis
-        const interval = setInterval(captureFrame, 2000);
-=======
         // Send frames every 10 seconds (with +/- 2s jitter to prevent thundering herd)
         const jitter = Math.random() * 4000 - 2000; // -2s to +2s
         const intervalTime = 10000 + jitter;
 
         const interval = setInterval(captureFrame, intervalTime);
->>>>>>> rohan
         return () => clearInterval(interval);
       } catch (err) {
         setProctoringStatus("camera_error");
@@ -101,26 +79,11 @@ export default function ExamRoom() {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(videoRef.current, 0, 0, 320, 240);
-<<<<<<< HEAD
-    
-=======
 
->>>>>>> rohan
     const frameData = canvas.toDataURL("image/jpeg", 0.6);
     const token = getToken();
 
     try {
-<<<<<<< HEAD
-      await fetch("http://localhost:5000/api/proctoring_frame", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          session_id: sessionId, 
-          frame_data: frameData 
-=======
       await fetch("http://127.0.0.1:5000/api/proctoring_frame", {
         method: "POST",
         headers: {
@@ -130,7 +93,6 @@ export default function ExamRoom() {
         body: JSON.stringify({
           session_id: sessionId,
           frame_data: frameData
->>>>>>> rohan
         })
       });
     } catch (err) {
@@ -138,30 +100,6 @@ export default function ExamRoom() {
     }
   }, [sessionId, proctoringStatus]);
 
-<<<<<<< HEAD
-  // 3. WebSocket for live proctoring
-  useEffect(() => {
-    const socket = new WebSocket("ws://localhost:5000");
-    
-    socket.onopen = () => {
-      socket.send(JSON.stringify({
-        type: "join_session",
-        session_id: sessionId
-      }));
-    };
-
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === "proctoring_alert") {
-        setProctoringStatus("warning");
-        // Show violation toast
-        alert(`Proctoring Alert: ${data.details}`);
-      }
-    };
-
-    wsRef.current = socket;
-    return () => socket.close();
-=======
   // 3. Socket.IO for live proctoring
   useEffect(() => {
     const socket = getSocket();
@@ -212,7 +150,6 @@ export default function ExamRoom() {
       socket.off('status');
       unsubscribe();
     };
->>>>>>> rohan
   }, [sessionId]);
 
   // 4. Fullscreen + Anti-cheat Detection
@@ -252,18 +189,6 @@ export default function ExamRoom() {
 
   const logViolation = async (type, severity) => {
     const token = getToken();
-<<<<<<< HEAD
-    await fetch("http://localhost:5000/api/proctoring_event", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({ 
-        session_id: sessionId,
-        event_type: type,
-        severity 
-=======
     await fetch("http://127.0.0.1:5000/api/proctoring_event", {
       method: "POST",
       headers: {
@@ -274,7 +199,6 @@ export default function ExamRoom() {
         session_id: sessionId,
         event_type: type,
         severity
->>>>>>> rohan
       })
     });
   };
@@ -308,20 +232,6 @@ export default function ExamRoom() {
   const handleExamEnd = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
-<<<<<<< HEAD
-    
-    const token = getToken();
-    try {
-      await fetch("http://localhost:5000/api/end_exam", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          session_id: sessionId,
-          answers 
-=======
 
     const token = getToken();
     try {
@@ -334,7 +244,6 @@ export default function ExamRoom() {
         body: JSON.stringify({
           session_id: sessionId,
           answers
->>>>>>> rohan
         })
       });
       navigate("/student/results");
@@ -345,11 +254,7 @@ export default function ExamRoom() {
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
-<<<<<<< HEAD
-      document.documentElement.requestFullscreen().catch(() => {});
-=======
       document.documentElement.requestFullscreen().catch(() => { });
->>>>>>> rohan
     } else {
       document.exitFullscreen();
     }
@@ -383,19 +288,11 @@ export default function ExamRoom() {
 
   return (
     <div className={`min-h-screen bg-[#F3F4F6] dark:bg-[#011627] transition-all duration-300 ${isFullScreen ? 'p-2' : 'p-4 md:p-6 lg:p-8'}`}>
-<<<<<<< HEAD
-      
-      {/* Header + Camera */}
-      <div className="mb-6 rounded-2xl shadow-xl">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          
-=======
 
       {/* Header + Camera */}
       <div className="mb-6 rounded-2xl shadow-xl">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
->>>>>>> rohan
           {/* Header */}
           <div className="lg:col-span-10 bg-gradient-to-r from-[#1E3A8A] via-[#3730A3] to-[#1E40AF] p-4 lg:p-6 text-white rounded-l-2xl">
             {/* Your existing header JSX */}
@@ -421,18 +318,6 @@ export default function ExamRoom() {
           {/* Live Camera */}
           <div className="lg:col-span-2 bg-black/30 p-2 lg:p-4 rounded-r-2xl">
             <div className="relative">
-<<<<<<< HEAD
-              <video 
-                ref={videoRef} 
-                autoPlay 
-                muted 
-                className="w-full h-24 lg:h-32 rounded-xl object-cover border-2 border-white/30 shadow-xl"
-              />
-              <div className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white/50 animate-pulse ${
-                proctoringStatus === "active" ? "bg-green-400" : 
-                proctoringStatus === "warning" ? "bg-yellow-400" : "bg-red-400"
-              }`} />
-=======
               <video
                 ref={videoRef}
                 autoPlay
@@ -442,7 +327,6 @@ export default function ExamRoom() {
               <div className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white/50 animate-pulse ${proctoringStatus === "active" ? "bg-green-400" :
                 proctoringStatus === "warning" ? "bg-yellow-400" : "bg-red-400"
                 }`} />
->>>>>>> rohan
             </div>
           </div>
         </div>
@@ -454,11 +338,7 @@ export default function ExamRoom() {
       {/* Questions + Answers - Your existing JSX */}
       <div className="bg-white/95 dark:bg-[#0f1724]/95 backdrop-blur-xl rounded-2xl shadow-xl border overflow-hidden">
         {/* Question header, options, navigation - keep your existing */}
-<<<<<<< HEAD
-        
-=======
 
->>>>>>> rohan
         {/* Submit button in navigation */}
         <button
           onClick={handleExamEnd}

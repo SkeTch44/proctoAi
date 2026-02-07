@@ -32,7 +32,8 @@ class Config:
     ALLOWED_EXTENSIONS = set(os.getenv("ALLOWED_EXTENSIONS", "pdf,docx").split(","))
 
     # CORS settings
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    # CORS settings
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 
     # Proctoring thresholds
     SUSPICION_THRESHOLD = float(os.getenv("SUSPICION_THRESHOLD", "50"))

@@ -1,0 +1,59 @@
+{
+    "skill_id": "MCQ_GENERATION_V1",
+    "version": "1.0.0",
+    "format_type": "mcq",
+    "description": "Generate multiple-choice questions with 4 options",
+    "max_batch_size": 5,
+    "min_batch_size": 1,
+    "rag_chunks": 2,
+    "llm_params": {
+        "temperature": 0.3,
+        "max_tokens": 2048,
+        "format": "json"
+    },
+    "validation_schema": {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": [
+                "question",
+                "options",
+                "answer"
+            ],
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 200
+                },
+                "options": {
+                    "type": "object",
+                    "required": [
+                        "A",
+                        "B",
+                        "C",
+                        "D"
+                    ],
+                    "properties": {
+                        "A": {
+                            "type": "string"
+                        },
+                        "B": {
+                            "type": "string"
+                        },
+                        "C": {
+                            "type": "string"
+                        },
+                        "D": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "answer": {
+                    "type": "string",
+                    "pattern": "^[A-D]$"
+                }
+            }
+        }
+    }
+}

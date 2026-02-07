@@ -1,0 +1,36 @@
+{
+    "skill_id": "SHORT_ANSWER_GENERATION_V1",
+    "version": "1.0.0",
+    "format_type": "short_answer",
+    "description": "Generate short answer questions requiring 1-3 sentence responses",
+    "max_batch_size": 5,
+    "min_batch_size": 1,
+    "rag_chunks": 3,
+    "llm_params": {
+        "temperature": 0.4,
+        "max_tokens": 2048,
+        "format": "json"
+    },
+    "validation_schema": {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": [
+                "question",
+                "expected_answer"
+            ],
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "minLength": 15,
+                    "maxLength": 250
+                },
+                "expected_answer": {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 500
+                }
+            }
+        }
+    }
+}

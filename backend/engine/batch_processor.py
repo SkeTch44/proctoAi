@@ -7,8 +7,8 @@ from typing import List, Dict, Any
 from datetime import datetime
 from uuid import uuid4
 
-from questions import QuestionGenerator
-from enhanced_question import EnhancedQuestionGenerator
+from backend.engine.questions import QuestionGenerator
+from backend.engine.enhanced_question import EnhancedQuestionGenerator
 from db.database import DatabaseManager
 
 logger = logging.getLogger(__name__)

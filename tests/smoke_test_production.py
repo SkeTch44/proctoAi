@@ -6,7 +6,7 @@ import sys
 import uuid
 
 # Configuration
-BASE_URL = "http://localhost:5000"
+BASE_URL = "http://127.0.0.1:5000"
 USERNAME = f"smoke_test_admin_{uuid.uuid4().hex[:6]}"
 PASSWORD = "password123"
 
@@ -40,9 +40,9 @@ def smoke_test():
             user_data = db.get_user_by_username(USERNAME)
             user_id = user_data['id']
             
-        # Force approve
-        db.approve_user(user_id)
-        print(f"User {USERNAME} created and approved (ID: {user_id})")
+        # Force approve - Not needed as default is_active=1
+        # db.approve_user(user_id)
+        print(f"User {USERNAME} created (ID: {user_id})")
         
     except ImportError:
         print("Could not import backend modules. Make sure you are running from project root.")

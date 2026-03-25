@@ -17,6 +17,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.services.question_generation_service import QuestionGenerationService
 from backend.question_bank import QuestionBankManager
+from backend.utils.logging_config import setup_logging
+
+# Initialize Logging for Test
+setup_logging(name="test_integration", log_file="test_integration.log")
 
 
 def create_sample_pdf():
@@ -72,6 +76,50 @@ def test_mode1_pure_ai():
         print(f"  Text: {q.get('question_text', 'N/A')[:100]}...")
         print(f"  Type: {q.get('question_type')}")
         print(f"  Difficulty: {q.get('difficulty')}")
+    
+    return result['success']
+
+
+def test_mode2_rag():
+    """Test Mode 2: RAG Generation (using text file)"""
+    print("\n" + "="*60)
+    print("TEST MODE 2: RAG + LLM GENERATION")
+    print("="*60)
+    
+    # Create sample file represents a source document
+    sample_file = create_sample_pdf()
+    print(f"Created sample source file: {sample_file}")
+    
+    service = QuestionGenerationService()
+    
+    # Note: RAG engine might be mocked or disabled if not running, 
+    # but the service should handle the fallback to full text
+    result = service.generate_rag(
+        file_path=sample_file,
+        topic="Physics Concepts",
+        count=3,
+        difficulty="medium",
+        question_types=["mcq", "short_answer"]
+    )
+    
+    print(f"Success: {result['success']}")
+    print(f"Message: {result['message']}")
+    print(f"Questions generated: {result['count']}")
+    
+    if 'document_chars' in result:
+        print(f"Document chars extracted: {result['document_chars']}")
+        
+    print(f"Saved to bank: {result['saved_count']}")
+    
+    if result['questions']:
+        print("\nGenerated question from doc:")
+        q = result['questions'][0]
+        print(f"  Text: {q.get('question_text', 'N/A')[:100]}...")
+        print(f"  Type: {q.get('question_type')}")
+        print(f"  Source: {q.get('metadata', {}).get('source_document', 'N/A')}")
+    
+    # Cleanup
+    # os.unlink(sample_file) # Re-used in next test or cleanup there
     
     return result['success']
 
@@ -191,6 +239,7 @@ def run_all_tests():
     
     results = {
         "Mode 1 (Pure AI)": test_mode1_pure_ai(),
+        "Mode 2 (RAG + LLM)": test_mode2_rag(),
         "Mode 3 (PDF Scan)": test_mode3_pdf_scan(),
         "Bulk Create": test_bulk_create(),
         "Question Bank Storage": test_question_bank_storage()

@@ -20,6 +20,7 @@ import ProctoringLogs from "./pages/AdminPages/ProctoringLogs";
 import Analytics from "./pages/AdminPages/Analytics";
 import Reports from "./pages/AdminPages/Reports";
 import AdminDashboard from "./pages/AdminPages/AdminDashboard";
+import QuestionBank from "./pages/AdminPages/QuestionBank";
 import AdminRegister from "./pages/AdminRegister";
 import AdminLogin from "./pages/AdminLogin";
 import StudentDashboard from "./pages/StudentPages/StudentDashboard";
@@ -107,7 +108,9 @@ function App() {
                 <Route path="admin-monitoring" element={<LiveMonitoring />} />
                 <Route path="admin-logs" element={<ProctoringLogs />} />
                 <Route path="admin-analytics" element={<Analytics />} />
+                <Route path="admin-analytics" element={<Analytics />} />
                 <Route path="compiled-reports" element={<Reports />} />
+                <Route path="question-bank" element={<QuestionBank />} />
               </Route>
 
               <Route

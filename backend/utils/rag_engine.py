@@ -3,8 +3,8 @@ import json
 import logging
 import pickle
 from typing import List, Dict, Optional, Tuple
-import numpy as np
-from sentence_transformers import SentenceTransformer
+# import numpy as np # Lazy load if possible, or keep if lightweight
+# from sentence_transformers import SentenceTransformer # Moved to lazy property
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,9 @@ class RAGEngine:
     - Metadata tracking
     """
     
-    def __init__(self, store_path: str = "backend/db/rag_strore", model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, store_path: str = "backend/db/rag_store", model_name: str = "all-MiniLM-L6-v2"):
         """
-        Initialize RAG Engine
+        Initialize RAG Engine (Lazy Loading)
         
         Args:
             store_path: Path to store FAISS index and metadata
@@ -32,23 +32,52 @@ class RAGEngine:
         self.index_path = os.path.join(store_path, "faiss_index.bin")
         self.metadata_path = os.path.join(store_path, "metadata.pkl")
         
-        # Ensure store directory exists
-        os.makedirs(store_path, exist_ok=True)
-        
-        # Initialize sentence transformer model
-        logger.info(f"Loading sentence transformer model: {model_name}")
-        self.model = SentenceTransformer(model_name)
-        self.embedding_dim = self.model.get_sentence_embedding_dimension()
-        
-        # Initialize or load FAISS index
-        self.index = None
-        self.metadata = []  # List of metadata dicts for each chunk
-        self._load_or_create_index()
-        
-        logger.info(f"RAG Engine initialized with {len(self.metadata)} existing chunks")
-    
+        # Lazy initialization variables
+        self._model = None
+        self._index = None
+        self._metadata = None
+        self._embedding_dim = None
+
+    @property
+    def model(self):
+        """Lazy load SentenceTransformer model"""
+        if self._model is None:
+            logger.info(f"Lazy loading sentence transformer model: {self.model_name}")
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(self.model_name)
+        return self._model
+
+    @property
+    def embedding_dim(self):
+        """Lazy load embedding dimension"""
+        if self._embedding_dim is None:
+            self._embedding_dim = self.model.get_sentence_embedding_dimension()
+        return self._embedding_dim
+
+    @property
+    def index(self):
+        """Lazy load FAISS index"""
+        if self._index is None:
+            self._load_or_create_index()
+        return self._index
+
+    @property
+    def metadata(self):
+        """Lazy load metadata"""
+        if self._metadata is None:
+            if self._index is None: # Metadata is loaded with index
+                self._load_or_create_index()
+        return self._metadata
+
+    @metadata.setter
+    def metadata(self, value):
+        self._metadata = value
+
     def _load_or_create_index(self):
         """Load existing FAISS index or create new one"""
+        # Ensure store directory exists when we actually need it
+        os.makedirs(self.store_path, exist_ok=True)
+
         try:
             import faiss
         except ImportError:
@@ -58,10 +87,10 @@ class RAGEngine:
         if os.path.exists(self.index_path) and os.path.exists(self.metadata_path):
             try:
                 # Load existing index
-                self.index = faiss.read_index(self.index_path)
+                self._index = faiss.read_index(self.index_path)
                 with open(self.metadata_path, 'rb') as f:
-                    self.metadata = pickle.load(f)
-                logger.info(f"Loaded existing FAISS index with {self.index.ntotal} vectors")
+                    self._metadata = pickle.load(f)
+                logger.info(f"Loaded existing FAISS index with {self._index.ntotal} vectors")
             except Exception as e:
                 logger.warning(f"Failed to load existing index: {e}. Creating new index.")
                 self._create_new_index()
@@ -72,8 +101,8 @@ class RAGEngine:
         """Create a new FAISS index"""
         import faiss
         # Using IndexFlatL2 for exact search (can be upgraded to IndexIVFFlat for larger datasets)
-        self.index = faiss.IndexFlatL2(self.embedding_dim)
-        self.metadata = []
+        self._index = faiss.IndexFlatL2(self.embedding_dim)
+        self._metadata = []
         logger.info(f"Created new FAISS index with dimension {self.embedding_dim}")
     
     def _save_index(self):

@@ -6,7 +6,7 @@ import logging
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from backend.questions import QuestionGenerator
+from backend.engine.questions import QuestionGenerator
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

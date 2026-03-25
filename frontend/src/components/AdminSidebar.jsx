@@ -14,6 +14,7 @@ const navItems = [
   { label: "Proctoring Logs", path: "admin-logs" },
   { label: "Analytics", path: "admin-analytics" },
   { label: "Reports", path: "compiled-reports" },
+  { label: "Question Bank", path: "question-bank" },
 ];
 
 export default function AdminSidebar() {

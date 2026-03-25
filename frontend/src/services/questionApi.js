@@ -10,31 +10,61 @@ const getAuthHeader = () => {
 
 /**
  * Mode 1: Generate questions using pure AI (topic only)
+ * Uses async Universal Engine with job polling
  */
 export const generateQuestionsAI = async (params) => {
     const { topic, count, difficulty, types, bankId } = params;
 
-    const response = await fetch(`${API_BASE}/api/questions/generate/ai`, {
+    // Step 1: Dispatch async job
+    const response = await fetch(`${API_BASE}/api/generate_questions_universal`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             ...getAuthHeader()
         },
         body: JSON.stringify({
-            topic,
-            count: count || 10,
+            subject: topic,
+            total_questions: count || 10,
             difficulty: difficulty || 'medium',
-            types: types || ['mcq'],
+            format: { [types[0]]: count || 10 },
             bank_id: bankId
         })
     });
 
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || 'Failed to generate questions');
+        throw new Error(error.message || 'Failed to start question generation');
     }
 
-    return response.json();
+    const { job_id } = await response.json();
+
+    // Step 2: Poll for completion (max 3 minutes, check every 2 seconds)
+    for (let i = 0; i < 90; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const statusResponse = await fetch(`${API_BASE}/api/generation_status/${job_id}`, {
+            headers: getAuthHeader()
+        });
+
+        if (!statusResponse.ok) {
+            throw new Error('Failed to check generation status');
+        }
+
+        const status = await statusResponse.json();
+
+        if (status.state === 'completed') {
+            return {
+                questions: status.result.questions || [],
+                count: status.result.count || 0,
+                message: 'Questions generated successfully'
+            };
+        } else if (status.state === 'failed') {
+            throw new Error(status.result?.message || 'Generation failed');
+        }
+        // Continue polling if still processing
+    }
+
+    throw new Error('Generation timed out after 3 minutes. Please try again with fewer questions.');
 };
 
 /**

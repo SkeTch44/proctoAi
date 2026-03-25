@@ -21,29 +21,43 @@ class QuestionGenerator:
     """AI-Powered question generation system using Gemini with RAG grounding"""
     
     def __init__(self, rag_store_path: str = "backend/db/rag_store"):
-        """Initialize Question Generator with RAG support"""
+        """Initialize Question Generator with RAG support (Lazy Loading)"""
         self.api_key = os.getenv("GEMINI_API_KEY")
         self.model = None
         self.fallback_enabled = True
+        self.rag_store_path = rag_store_path
         
-        # Initialize RAG engine
-        try:
-            self.rag_engine = RAGEngine(store_path=rag_store_path)
-            logger.info("RAG engine initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize RAG engine: {e}")
-            self.rag_engine = None
+        # Lazy initialization
+        self._rag_engine = None
+        self._llm_client = None
         
-        # Initialize parsers
+        # Initialize parsers (Lightweight)
         self.pdf_parser = PDFParser(chunk_size=500, overlap=50)
         self.docx_parser = DOCXParser(chunk_size=500, overlap=50)
-        
-        # Initialize LLM Client via Factory
-        self.llm_client = LLMFactory.create_client()
-        if self.llm_client:
-            logger.info(f"QuestionGenerator initialized with {self.llm_client.__class__.__name__}")
-        else:
-            logger.warning("No LLM client available. Questions will be generated using rule-based fallback only.")
+
+    @property
+    def rag_engine(self):
+        """Lazy load RAG Engine"""
+        if self._rag_engine is None:
+            try:
+                logger.info("Lazy loading RAG Engine...")
+                self._rag_engine = RAGEngine(store_path=self.rag_store_path)
+            except Exception as e:
+                logger.error(f"Failed to initialize RAG engine: {e}")
+                self._rag_engine = None
+        return self._rag_engine
+
+    @property
+    def llm_client(self):
+        """Lazy load LLM Client"""
+        if self._llm_client is None:
+            logger.info("Lazy loading LLM Client...")
+            self._llm_client = LLMFactory.create_client()
+            if self._llm_client:
+                logger.info(f"LLM Client initialized with {self._llm_client.__class__.__name__}")
+            else:
+                logger.warning("No LLM client available. Using rule-based fallback.")
+        return self._llm_client
     
     def process_document(self, file_path: str, doc_id: Optional[str] = None) -> Optional[str]:
         """

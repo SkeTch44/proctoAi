@@ -45,7 +45,11 @@ export default function StartExam() {
     microphone: false,
     screen: false,
   });
-  const [checklistComplete, setChecklistComplete] = useState(false);
+  const [checklist, setChecklist] = useState({
+    internet: false,
+    environment: false,
+    monitor: false
+  });
   const [isLoading, setIsLoading] = useState(false);
 
   // Request permissions (triggers browser popup)
@@ -121,9 +125,10 @@ export default function StartExam() {
     const [open, setOpen] = useState(false);
     const [sessionId, setSessionId] = useState(null);
     const [isStarting, setIsStarting] = useState(false);
+    const isChecklistComplete = Object.values(checklist).every(Boolean);
     const disabled =
       exam.status !== "Ready" ||
-      !checklistComplete ||
+      !isChecklistComplete ||
       !permissionsGranted.camera ||
       !permissionsGranted.microphone;
 
@@ -245,7 +250,8 @@ export default function StartExam() {
         <div className="grid md:grid-cols-2 gap-4 max-w-3xl">
           <ChecklistItem
             text="Stable internet (minimum 5 Mbps)"
-            onChange={setChecklistComplete}
+            checked={checklist.internet}
+            onChange={(val) => setChecklist(prev => ({ ...prev, internet: val }))}
           />
           <ChecklistItem
             text="Working webcam & microphone"
@@ -254,11 +260,13 @@ export default function StartExam() {
           />
           <ChecklistItem
             text="Quiet environment, clear desk"
-            onChange={setChecklistComplete}
+            checked={checklist.environment}
+            onChange={(val) => setChecklist(prev => ({ ...prev, environment: val }))}
           />
           <ChecklistItem
             text="Single monitor, no external devices"
-            onChange={setChecklistComplete}
+            checked={checklist.monitor}
+            onChange={(val) => setChecklist(prev => ({ ...prev, monitor: val }))}
           />
         </div>
       </section>

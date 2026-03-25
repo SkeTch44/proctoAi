@@ -6,8 +6,8 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.planner import Planner
-from backend.blueprints import BlueprintGenerator
+from backend.engine.planner import Planner
+from backend.engine.blueprints import BlueprintGenerator
 from backend.validator import Validator
 # We mock LLMRunner to avoid actual calls
 

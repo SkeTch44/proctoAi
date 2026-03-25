@@ -10,7 +10,7 @@ from backend.utils.semantic_chunker import SemanticChunker
 from backend.utils.pdf_classifier import PDFChunkClassifier
 from backend.utils.rag_manager import RAGManager
 from backend.utils.qa_linker import QALinker
-from backend.validator import Validator
+from backend.validation.validator import Validator
 from backend.utils.redis_manager import redis_manager
 from backend.db.database import DatabaseManager
 

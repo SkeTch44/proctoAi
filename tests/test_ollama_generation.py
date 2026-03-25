@@ -5,8 +5,8 @@ import logging
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from backend.questions import QuestionGenerator
-from backend.llm_runner import LLMRunner
+from backend.engine.questions import QuestionGenerator
+from backend.engine.llm_runner import LLMRunner
 from backend.config import Config
 
 # Setup logging

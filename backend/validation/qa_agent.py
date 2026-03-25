@@ -1,7 +1,7 @@
 import json
 import logging
 from typing import Dict, Any, Optional
-from backend.llm_runner import LLMRunner
+from backend.engine.llm_runner import LLMRunner
 
 logger = logging.getLogger(__name__)
 

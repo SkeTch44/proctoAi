@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.config import Config
 from backend.utils.llm_client import LLMFactory
-from backend.questions import QuestionGenerator
+from backend.engine.questions import QuestionGenerator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

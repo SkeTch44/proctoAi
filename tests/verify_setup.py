@@ -23,7 +23,7 @@ try:
     print("Tasks imported successfully.")
     
     print("Importing QuestionBankManager...")
-    from backend.question_bank import QuestionBankManager
+    from backend.engine.question_bank import QuestionBankManager
     print("QuestionBankManager imported successfully.")
     
     print("Importing DatabaseManager...")

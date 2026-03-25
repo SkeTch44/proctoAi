@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 # Import backend components
 from backend.utils.skill_compiler import get_skill_compiler, SkillPacket
-from backend.llm_runner import LLMRunner
+from backend.engine.llm_runner import LLMRunner
 from backend.utils.pdf_extractor import MultiLayerPDFExtractor
 from backend.utils.question_parser import QuestionParser
-from backend.question_bank import QuestionBankManager, Question, QuestionType
+from backend.engine.question_bank import QuestionBankManager, Question, QuestionType
 
 
 class QuestionGenerationService:
@@ -186,16 +186,30 @@ class QuestionGenerationService:
         
         if self.rag_engine:
             try:
+                # Create chunks for RAG
+                chunk_size = 1000
+                overlap = 200
+                chunks = []
+                start = 0
+                while start < len(full_text):
+                    end = start + chunk_size
+                    chunk = full_text[start:end]
+                    chunks.append(chunk)
+                    start += chunk_size - overlap
+                
+                logger.info(f"Created {len(chunks)} chunks for RAG")
+                
                 # Add document to RAG
-                self.rag_engine.add_document(full_text, metadata={"topic": topic, "file": file_path})
+                doc_id = os.path.basename(file_path)
+                self.rag_engine.add_document(doc_id, chunks, metadata={"topic": topic, "file": file_path})
                 
                 # Retrieve relevant chunks for the topic
-                retrieved = self.rag_engine.retrieve(topic, top_k=5)
+                retrieved = self.rag_engine.search(topic, k=5)
                 if retrieved:
-                    context = "\n\n".join([chunk['text'] for chunk in retrieved])
+                    context = "\n\n".join([r['text'] for r in retrieved])
                     logger.info(f"RAG retrieved {len(retrieved)} relevant chunks")
             except Exception as e:
-                logger.warning(f"RAG retrieval failed, using full text: {e}")
+                logger.warning(f"RAG retrieval failed, using full text head: {e}")
         
         # Step 3: Generate questions using LLM
         all_questions = []
@@ -340,6 +354,7 @@ class QuestionGenerationService:
             'mcq': 'mcq_generation',
             'short_answer': 'short_answer_generation',
             'essay': 'descriptive_generation',
+            'long_answer': 'descriptive_generation',
             'true_false': 'mcq_generation',  # Use MCQ with 2 options
             'fill_blanks': 'short_answer_generation'
         }
@@ -395,7 +410,10 @@ class QuestionGenerationService:
         bank_id: Optional[int]
     ) -> int:
         """Save questions to question bank"""
-        saved_count = 0
+        if not questions:
+            return 0
+            
+        question_objects = []
         
         for q_data in questions:
             try:
@@ -407,22 +425,31 @@ class QuestionGenerationService:
                     points=q_data.get('points', 1),
                     question_data=q_data.get('question_data', {}),
                     status=q_data.get('status', 'draft'),
-                    created_by=user_id
+                    created_by=user_id,
+                    # Ensure UUID is generated if not present
+                    uuid=q_data.get('uuid') 
                 )
                 
-                question_id = self.question_bank.create_question(question)
+                # Add metadata if present
+                if 'metadata' in q_data:
+                    # Storing metadata in hints or explanation as a workaround if no dedicated field
+                    # Or relying on Question object to handle it if valid field
+                    pass
                 
-                if question_id:
-                    saved_count += 1
-                    
-                    # Add to specific bank if provided
-                    if bank_id:
-                        self.question_bank.add_question_to_bank(bank_id, question_id, user_id)
+                question_objects.append(question)
                         
             except Exception as e:
-                logger.error(f"Failed to save question: {e}")
+                logger.error(f"Failed to prepare question object: {e}")
         
-        logger.info(f"Saved {saved_count}/{len(questions)} questions to bank")
+        if not question_objects:
+            return 0
+            
+        # Use bulk create for efficiency and atomic transaction
+        result = self.question_bank.bulk_create_questions(question_objects, bank_id)
+        
+        saved_count = result.get('created_count', 0)
+        logger.info(f"Saved {saved_count}/{len(questions)} questions to bank (Bulk Operation)")
+        
         return saved_count
 
 

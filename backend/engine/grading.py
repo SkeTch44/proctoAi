@@ -1,7 +1,7 @@
 import json
 import logging 
 from typing import Dict, Any, List, Tuple, Optional
-from sentence_transformers import SentenceTransformer, util
+# from sentence_transformers import SentenceTransformer, util (Lazy loaded)
 import numpy as np
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -25,12 +25,8 @@ class GradingEngine:
      - Cheating detection (exact match, AI paraphrasing)
     """
     def __init__(self, model_name: str = 'all-MiniLM-L6-v2', rubric_path: Optional[str] = None):
-        try:
-            self.sim_model = SentenceTransformer(model_name)
-            logger.info(f"Loaded semantic model: {model_name}")
-        except Exception as e:    
-            logger.error(f"Failed to load semantic model: {e}")
-            self.sim_model = None
+        self.model_name = model_name
+        self._sim_model = None # Lazy load
         
         # Load grading rubric configuration
         if rubric_path is None:
@@ -43,6 +39,19 @@ class GradingEngine:
         except Exception as e:
             logger.warning(f"Failed to load rubric config: {e}. Using defaults.")
             self.rubric = self._get_default_rubric()
+
+    @property
+    def sim_model(self):
+        """Lazy load SentenceTransformer model"""
+        if self._sim_model is None:
+            try:
+                logger.info(f"Lazy loading semantic model: {self.model_name}")
+                from sentence_transformers import SentenceTransformer
+                self._sim_model = SentenceTransformer(self.model_name)
+            except Exception as e:
+                logger.error(f"Failed to load semantic model: {e}")
+                self._sim_model = None
+        return self._sim_model
     
     def _get_default_rubric(self) -> Dict[str, Any]:
         """Fallback rubric if config file not found"""
@@ -192,6 +201,7 @@ class GradingEngine:
         
         if self.sim_model:
             # Calculate semantic similarity
+            from sentence_transformers import util
             score = util.pytorch_cos_sim(
                 *self.sim_model.encode([sample, ans], convert_to_tensor=True)
             ).item()
@@ -262,6 +272,7 @@ class GradingEngine:
         
         if self.sim_model and sample:
             try:
+                from sentence_transformers import util
                 sem = util.pytorch_cos_sim(
                     *self.sim_model.encode([sample, ans], convert_to_tensor=True)
                 ).item()

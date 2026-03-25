@@ -7,7 +7,7 @@ import json
 sys.path.append(os.getcwd())
 
 from backend.utils.skill_compiler import get_skill_compiler
-from backend.llm_runner import LLMRunner
+from backend.engine.llm_runner import LLMRunner
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

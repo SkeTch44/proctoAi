@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 from backend.utils.skill_compiler import get_skill_compiler, SkillPacket
 from backend.llm_runner import LLMRunner
 from backend.utils.pdf_extractor import MultiLayerPDFExtractor
+from backend.utils.pdf_noise_filter import PDFNoiseFilter
 from backend.utils.question_parser import QuestionParser
+from backend.utils.question_sanitizer import sanitize_questions
 from backend.question_bank import QuestionBankManager, Question, QuestionType
 
 
@@ -37,6 +39,7 @@ class QuestionGenerationService:
     def __init__(self, db_path: str = "exam_platform.db"):
         self.skill_compiler = get_skill_compiler()
         self.pdf_extractor = MultiLayerPDFExtractor()
+        self.noise_filter = PDFNoiseFilter()
         self.question_parser = QuestionParser()
         self.question_bank = QuestionBankManager(db_path)
         
@@ -187,10 +190,14 @@ class QuestionGenerationService:
         if self.rag_engine:
             try:
                 # Add document to RAG
-                self.rag_engine.add_document(full_text, metadata={"topic": topic, "file": file_path})
+                # Chunk the text and pass with a document ID
+                import hashlib
+                doc_id = hashlib.md5(file_path.encode()).hexdigest()[:12]
+                chunks = [full_text[i:i+1000] for i in range(0, len(full_text), 800)]  # 1000 char chunks, 200 overlap
+                self.rag_engine.add_document(doc_id, chunks, metadata={"topic": topic, "file": file_path})
                 
                 # Retrieve relevant chunks for the topic
-                retrieved = self.rag_engine.retrieve(topic, top_k=5)
+                retrieved = self.rag_engine.search(topic, k=5)
                 if retrieved:
                     context = "\n\n".join([chunk['text'] for chunk in retrieved])
                     logger.info(f"RAG retrieved {len(retrieved)} relevant chunks")
@@ -273,9 +280,12 @@ class QuestionGenerationService:
                     'questions': [],
                     'message': "Could not extract text from PDF"
                 }
-                
-            logger.info(f"Extracted {len(text_blocks)} text blocks from PDF")
-            
+
+            # Drop page numbers / copyright / URL noise before parsing
+            text_blocks = self.noise_filter.filter_blocks(text_blocks)
+
+            logger.info(f"Extracted {len(text_blocks)} clean text blocks from PDF")
+
         except Exception as e:
             logger.error(f"PDF extraction failed: {e}")
             return {
@@ -283,12 +293,12 @@ class QuestionGenerationService:
                 'questions': [],
                 'message': f"PDF extraction failed: {str(e)}"
             }
-        
+
         # Step 2: Parse questions from text
         try:
             parsed_questions = self.question_parser.parse(text_blocks)
             logger.info(f"Parsed {len(parsed_questions)} questions from PDF")
-            
+
         except Exception as e:
             logger.error(f"Question parsing failed: {e}")
             return {
@@ -296,28 +306,29 @@ class QuestionGenerationService:
                 'questions': [],
                 'message': f"Question parsing failed: {str(e)}"
             }
-        
-        # Step 3: Convert to question bank format
-        all_questions = []
+
+        # Step 3: Convert to question bank format + sanitise
+        raw_questions = []
         for pq in parsed_questions:
-            q = {
+            raw_questions.append({
                 'question_text': pq.question_text,
                 'question_type': pq.question_type.value,
                 'topic': topic,
                 'points': pq.marks or 1,
-                'difficulty': 'medium',  # Default, could be enhanced with AI classification
+                'difficulty': 'medium',
                 'status': 'draft',
                 'question_data': {
                     'options': pq.options,
-                    'correct_answer': pq.correct_answer
+                    'correct_answer': pq.correct_answer,
                 },
                 'metadata': {
                     'source_document': os.path.basename(file_path),
                     'page_number': pq.page_number,
-                    'extraction_confidence': pq.confidence
-                }
-            }
-            all_questions.append(q)
+                    'extraction_confidence': pq.confidence,
+                },
+            })
+
+        all_questions = sanitize_questions(raw_questions)
         
         # Step 4: Save to question bank
         saved_count = 0
@@ -346,47 +357,50 @@ class QuestionGenerationService:
         return mapping.get(q_type, 'mcq_generation')
     
     def _normalize_llm_response(self, result: Any, q_type: str, topic: str) -> List[Dict]:
-        """Normalize LLM response to standard question format"""
-        questions = []
-        
+        """Normalize LLM response to standard question format, then sanitise."""
         # Handle list or dict response
         if isinstance(result, list):
             raw_questions = result
         elif isinstance(result, dict) and 'questions' in result:
             raw_questions = result['questions']
-        else:
+        elif isinstance(result, dict):
             raw_questions = [result]
-        
-        for i, rq in enumerate(raw_questions):
+        else:
+            return []
+
+        staged: List[Dict] = []
+        for rq in raw_questions:
             if not isinstance(rq, dict):
                 continue
-            
-            q = {
-                'question_text': rq.get('question', rq.get('question_text', '')),
+
+            q: Dict[str, Any] = {
+                'question_text': rq.get('question') or rq.get('question_text') or rq.get('text') or '',
                 'question_type': q_type,
                 'topic': topic,
                 'difficulty': rq.get('difficulty', 'medium'),
                 'points': rq.get('points', 1),
                 'status': 'draft',
-                'question_data': {}
+                'question_data': {},
+                'explanation': rq.get('explanation', ''),
             }
-            
-            # Handle MCQ options
-            if q_type == 'mcq':
-                options = rq.get('options', {})
-                if isinstance(options, list):
-                    options = {chr(65+i): opt for i, opt in enumerate(options)}
-                q['question_data']['options'] = options
-                q['question_data']['correct_answer'] = rq.get('answer', rq.get('correct_answer'))
-            
-            # Handle short answer
+
+            if q_type == 'mcq' or q_type == 'true_false':
+                q['question_data']['options'] = rq.get('options', {})
+                q['question_data']['correct_answer'] = rq.get('answer') or rq.get('correct_answer')
             elif q_type == 'short_answer':
-                q['question_data']['expected_answer'] = rq.get('answer', rq.get('expected_answer', ''))
-            
-            if q['question_text']:
-                questions.append(q)
-        
-        return questions
+                q['question_data']['correct_answer'] = (
+                    rq.get('answer')
+                    or rq.get('correct_answer')
+                    or rq.get('expected_answer', '')
+                )
+            else:
+                q['question_data']['correct_answer'] = rq.get('answer') or rq.get('correct_answer')
+
+            staged.append(q)
+
+        # Final cleanup: strip stray "Answer: X" tails, normalise option shapes,
+        # drop duplicates, and guarantee types are sensible for the student UI.
+        return sanitize_questions(staged)
     
     def _save_to_question_bank(
         self, 
@@ -406,7 +420,8 @@ class QuestionGenerationService:
                     difficulty=q_data.get('difficulty', 'medium'),
                     points=q_data.get('points', 1),
                     question_data=q_data.get('question_data', {}),
-                    status=q_data.get('status', 'draft'),
+                    explanation=q_data.get('explanation', ''),
+                    status=q_data.get('status', 'active'),
                     created_by=user_id
                 )
                 

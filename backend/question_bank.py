@@ -1,4 +1,4 @@
-
+﻿
 import sqlite3
 import json
 import logging
@@ -113,14 +113,34 @@ class QuestionBankManager:
     - Template management
     """
     
-    def __init__(self, db_path: str = "exam_platform.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = "sqlite:///exam_platform.db"):
+        # Accept both "sqlite:///foo.db" and a bare path.
+        import os as _os
+        from backend.db.engine import get_connection as _get_conn, driver_name as _driver
+        self._get_conn = _get_conn
+        self.database_url = db_path if "://" in db_path else f"sqlite:///{db_path}"
+        # Env var wins so the app honours DATABASE_URL automatically.
+        self.database_url = _os.getenv("DATABASE_URL", self.database_url)
+        self.db_path = self.database_url.replace("sqlite:///", "")
+        self.driver = _driver(self.database_url)
         self.init_database()
-        logger.info("QuestionBankManager initialized")
+        logger.info(f"QuestionBankManager initialized (driver={self.driver})")
+
+    def _connect(self):
+        """Return a connection object that supports the sqlite3-style API."""
+        return self._get_conn(self.database_url)
     
     def init_database(self):
-        """Initialize question bank database tables"""
-        conn = sqlite3.connect(self.db_path)
+        """Initialize question bank database tables.
+        
+        On Postgres this is a no-op — Alembic owns the schema.
+        On SQLite (dev) we create tables inline for convenience.
+        """
+        if self.driver == "postgres":
+            logger.info("Postgres detected — skipping init_database (Alembic owns schema)")
+            return
+
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -284,7 +304,7 @@ class QuestionBankManager:
     
     def create_question(self, question: Question) -> Optional[int]:
         """Create a new question"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -338,7 +358,7 @@ class QuestionBankManager:
         Returns:
             Dict with 'created_count', 'failed_count', 'question_ids'
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         created_ids = []
@@ -406,7 +426,7 @@ class QuestionBankManager:
     
     def get_question(self, question_id: int) -> Optional[Question]:
         """Get a question by ID"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -425,7 +445,7 @@ class QuestionBankManager:
     
     def get_question_by_uuid(self, question_uuid: str) -> Optional[Question]:
         """Get a question by UUID"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -444,7 +464,7 @@ class QuestionBankManager:
     
     def update_question(self, question_id: int, updates: Dict) -> bool:
         """Update a question"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -494,7 +514,7 @@ class QuestionBankManager:
     
     def delete_question(self, question_id: int, user_id: int) -> bool:
         """Delete a question (soft delete by setting status to archived)"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -569,7 +589,7 @@ class QuestionBankManager:
                         per_page: int = 20) -> Dict:
         """Advanced question search with filtering and pagination"""
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -604,8 +624,8 @@ class QuestionBankManager:
                     params.append(filters['subject'])
                 
                 if filters.get('topic'):
-                    where_conditions.append("topic = ?")
-                    params.append(filters['topic'])
+                    where_conditions.append("topic LIKE ?")
+                    params.append(f"%{filters['topic']}%")
                 
                 if filters.get('status'):
                     where_conditions.append("status = ?")
@@ -677,7 +697,7 @@ class QuestionBankManager:
     
     def get_question_statistics(self, user_id: int = None) -> Dict:
         """Get question statistics"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -762,7 +782,7 @@ class QuestionBankManager:
     
     def create_question_bank(self, bank: QuestionBank) -> Optional[int]:
         """Create a new question bank"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -792,7 +812,7 @@ class QuestionBankManager:
     def add_question_to_bank(self, bank_id: int, question_id: int, user_id: int, 
                            order_index: int = 0, weight: float = 1.0, is_mandatory: bool = False) -> bool:
         """Add a question to a question bank"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -819,7 +839,7 @@ class QuestionBankManager:
     
     def remove_question_from_bank(self, bank_id: int, question_id: int) -> bool:
         """Remove a question from a question bank"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -846,7 +866,7 @@ class QuestionBankManager:
     
     def get_question_bank(self, bank_id: int) -> Optional[Dict]:
         """Get a question bank with its questions"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -904,7 +924,7 @@ class QuestionBankManager:
     
     def get_user_question_banks(self, user_id: int) -> List[Dict]:
         """Get all question banks for a user"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -1002,7 +1022,7 @@ class QuestionBankManager:
     
     def check_duplicate_question(self, question: Question, exclude_id: int = None) -> Optional[int]:
         """Check if a similar question already exists"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -1106,7 +1126,7 @@ class QuestionBankManager:
                             is_correct: bool = None, score: float = None, 
                             time_taken: int = None) -> bool:
         """Record question usage for analytics"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -1143,7 +1163,7 @@ class QuestionBankManager:
     
     def get_question_analytics(self, question_id: int) -> Dict:
         """Get analytics for a specific question"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -1245,7 +1265,7 @@ class QuestionBankManager:
     
     def get_subjects(self) -> List[str]:
         """Get list of all subjects"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -1266,7 +1286,7 @@ class QuestionBankManager:
     
     def get_topics_by_subject(self, subject: str) -> List[str]:
         """Get topics for a specific subject"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:
@@ -1287,7 +1307,7 @@ class QuestionBankManager:
     
     def get_popular_tags(self, limit: int = 20) -> List[Tuple[str, int]]:
         """Get most popular tags with usage count"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         try:

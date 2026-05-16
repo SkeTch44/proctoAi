@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 
 const navItems = [
   { label: "Start Exam", path: "/student/start-exam" },
+  { label: "Coding Problems", path: "/student/coding" },
   { label: "Results", path: "/student/results" },
   { label: "Profile", path: "/student/profile" },
   { label: "Support", path: "/student/support" },

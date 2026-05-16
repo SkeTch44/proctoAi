@@ -371,156 +371,21 @@ class BehavioralAnalyzer:
             return {'anomaly': False, 'type': 'ERROR'}
 
 
+
 # ==========================================
-# 5. System Monitor
+# 5. System Monitor (using canonical version from cheat_detector)
 # ==========================================
-class SystemMonitor:
-    """Monitors system for suspicious processes and configurations"""
-    
-    def __init__(self):
-        self.enabled = system_monitoring_available
-        self.suspicious_processes = [
-            'obs64.exe', 'obs32.exe', 'obs.exe',  # OBS Studio
-            'teamviewer.exe',  # Remote access
-            'anydesk.exe',  # Remote access
-            'discord.exe',  # Communication
-            'telegram.exe',  # Communication
-            'zoom.exe',  # Communication
-            'skype.exe',  # Communication
-        ]
-    
-    def check_suspicious_processes(self) -> Dict[str, Any]:
-        """Check for suspicious running processes"""
-        if not self.enabled:
-            return {'detected': False, 'processes': []}
-        
-        try:
-            found_processes = []
-            for proc in psutil.process_iter(['name']):
-                try:
-                    proc_name = proc.info['name'].lower()
-                    if proc_name in self.suspicious_processes:
-                        found_processes.append(proc_name)
-                except:
-                    continue
-            
-            return {
-                'detected': len(found_processes) > 0,
-                'processes': found_processes,
-                'count': len(found_processes)
-            }
-            
-        except Exception as e:
-            logger.error(f"Process monitoring error: {e}")
-            return {'detected': False, 'processes': []}
-    
-    def detect_multiple_monitors(self) -> Dict[str, Any]:
-        """Detect if multiple monitors are connected"""
-        if not self.enabled:
-            return {'multiple_monitors': False, 'count': 1}
-        
-        try:
-            # This is a simplified check
-            # More accurate detection would require platform-specific APIs
-            import screeninfo
-            screens = screeninfo.get_monitors()
-            
-            return {
-                'multiple_monitors': len(screens) > 1,
-                'count': len(screens),
-                'screens': [{'width': s.width, 'height': s.height} for s in screens]
-            }
-        except:
-            # Fallback method
-            try:
-                windows = gw.getAllWindows()
-                # Heuristic: If windows span beyond typical single monitor width
-                max_x = max([w.left + w.width for w in windows] + [1920])
-                return {
-                    'multiple_monitors': max_x > 2000,
-                    'count': 2 if max_x > 2000 else 1
-                }
-            except:
-                return {'multiple_monitors': False, 'count': 1}
-    
-    def get_network_stats(self) -> Dict[str, Any]:
-        """Get current network usage statistics"""
-        if not self.enabled:
-            return {'bytes_sent': 0, 'bytes_recv': 0, 'spike': False}
-        
-        try:
-            net_io = psutil.net_io_counters()
-            return {
-                'bytes_sent': net_io.bytes_sent,
-                'bytes_recv': net_io.bytes_recv,
-                'packets_sent': net_io.packets_sent,
-                'packets_recv': net_io.packets_recv
-            }
-        except Exception as e:
-            logger.error(f"Network stats error: {e}")
-            return {'bytes_sent': 0, 'bytes_recv': 0}
+# NOTE: SystemMonitor has been consolidated into cheat_detector.py
+# Import from there if needed:
+# from backend.models.cheat_detector import SystemMonitor
+
+
 
 
 # ==========================================
-# 6. Object Detector (YOLOv8)
+# 6. Object Detector (consolidated into cheat_detector.YOLODetector)
 # ==========================================
-class ObjectDetector:
-    """Detects objects like phones, books using YOLOv8"""
-    
-    def __init__(self):
-        self.model = None
-        if ultralytics_available:
-            try:
-                # Load a pretrained YOLOv8n model
-                # It will download automatically on first run if not present
-                self.model = YOLO("yolov8n.pt")
-                # Suppress logging
-                logging.getLogger("ultralytics").setLevel(logging.WARNING)
-                logger.info("ObjectDetector (YOLOv8) initialized")
-            except Exception as e:
-                logger.error(f"Failed to load YOLOv8 model: {e}")
+# NOTE: Object detection has been consolidated into cheat_detector.py's YOLODetector
+# Import from there if needed:
+# from backend.models.cheat_detector import YOLODetector
 
-    def detect_objects(self, frame: np.ndarray) -> Dict[str, Any]:
-        """
-        Detect objects in frame
-        Returns: {'found': ['cell phone', 'book'], 'scores': {...}}
-        """
-        if not self.model:
-            return {'found': [], 'scores': {}, 'count': 0}
-            
-        try:
-            # Predict
-            results = self.model.predict(frame, verbose=False, conf=0.4)
-            
-            found_objects = []
-            scores = {}
-            
-            # Map of class IDs to names (YOLOv8 COCO)
-            # 67: cell phone, 73: book, 0: person, 63: laptop
-            target_classes = {
-                67: 'cell phone',
-                73: 'book',
-                # 63: 'laptop', # Laptop might be normal
-                # 0: 'person' # Handled by face detection usually
-            }
-            
-            for r in results:
-                for box in r.boxes:
-                    cls_id = int(box.cls[0])
-                    conf = float(box.conf[0])
-                    
-                    if cls_id in target_classes:
-                        obj_name = target_classes[cls_id]
-                        if obj_name not in found_objects:
-                            found_objects.append(obj_name)
-                            scores[obj_name] = conf
-            
-            return {
-                'found': found_objects,
-                'scores': scores,
-                'count': len(found_objects)
-            }
-            
-        except Exception as e:
-            logger.error(f"Object detection error: {e}")
-            return {'found': [], 'scores': {}, 'count': 0}

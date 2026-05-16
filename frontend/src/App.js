@@ -19,6 +19,10 @@ import LiveMonitoring from "./pages/AdminPages/LiveMonitoring";
 import ProctoringLogs from "./pages/AdminPages/ProctoringLogs";
 import Analytics from "./pages/AdminPages/Analytics";
 import Reports from "./pages/AdminPages/Reports";
+import CodeReview from "./pages/AdminPages/CodeReview";
+import CodingProblemManager from "./pages/AdminPages/CodingProblemManager";
+import CodingSubmissions from "./pages/AdminPages/CodingSubmissions";
+import InterviewManager from "./pages/AdminPages/InterviewManager";
 import AdminDashboard from "./pages/AdminPages/AdminDashboard";
 import AdminRegister from "./pages/AdminRegister";
 import AdminLogin from "./pages/AdminLogin";
@@ -30,6 +34,10 @@ import Results from "./pages/StudentPages/Results";
 import Profile from "./pages/StudentPages/Profile";
 import Support from "./pages/StudentPages/Support";
 import ExamRoom from "./pages/StudentPages/ExamRoom";
+import WaitingRoom from "./pages/StudentPages/WaitingRoom";
+import CodingRoom from "./pages/StudentPages/CodingRoom";
+import CodingProblems from "./pages/StudentPages/CodingProblems";
+import InterviewRoom from "./pages/StudentPages/InterviewRoom";
 import NotificationBar from "./components/NotificationBar";
 const ThemeContext = createContext();
 export function useTheme() {
@@ -93,7 +101,7 @@ function App() {
               <Route path="/admin-login" element={<AdminLogin />} />
               {/* Admin dashboard layout with sidebar + nested pages */}
               <Route
-                path="/AdminDashboard"
+                path="/admin/dashboard"
                 element={
                   <AdminRoute>
                     <Layout />
@@ -104,10 +112,14 @@ function App() {
                 <Route path="documentUpload" element={<DragNdrop />} />
                 <Route path="analyzer" element={<AIQuestionGenerator />} />
                 <Route path="test-creator" element={<TestCreator />} />
+                <Route path="coding-problems" element={<CodingProblemManager />} />
+                <Route path="coding-submissions" element={<CodingSubmissions />} />
                 <Route path="admin-monitoring" element={<LiveMonitoring />} />
                 <Route path="admin-logs" element={<ProctoringLogs />} />
                 <Route path="admin-analytics" element={<Analytics />} />
                 <Route path="compiled-reports" element={<Reports />} />
+                <Route path="code-review" element={<CodeReview />} />
+                <Route path="interviews" element={<InterviewManager />} />
               </Route>
 
               <Route
@@ -125,6 +137,10 @@ function App() {
                 <Route path="profile" element={<Profile />} />
                 <Route path="support" element={<Support />} />
                 <Route path="exam-room/:examId" element={<ExamRoom />} />
+                <Route path="waiting-room/:examId" element={<WaitingRoom />} />
+                <Route path="coding" element={<CodingProblems />} />
+                <Route path="coding/:problemId" element={<CodingRoom />} />
+                <Route path="interview/:sessionId" element={<InterviewRoom />} />
                 <Route path="/student/feedback" element={<Feedback />} />
               </Route>
 

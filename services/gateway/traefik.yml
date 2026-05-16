@@ -1,0 +1,27 @@
+# ============================================================
+# Traefik API Gateway — static configuration
+# ============================================================
+
+api:
+  dashboard: true
+  insecure: true  # Disable in production
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    filename: /etc/traefik/routes.yml
+    watch: true
+
+log:
+  level: INFO
+
+accessLog: {}
+
+metrics:
+  prometheus:
+    entryPoint: web

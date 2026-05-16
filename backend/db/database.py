@@ -1,10 +1,13 @@
 import sqlite3
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
 import json
 
 from werkzeug.security import check_password_hash
+
+from backend.db.engine import get_connection, driver_name
 
 logger = logging.getLogger(__name__)
 
@@ -13,21 +16,31 @@ class DatabaseManager:
     """
     Comprehensive database manager for the exam platform
     Handles CRUD operations for users, exams, sessions, proctoring
+
+    Works against SQLite (dev) or PostgreSQL (prod). Dialect is
+    selected automatically from DATABASE_URL.
     """
 
     def __init__(self, database_url: str):
-        self.db_path = database_url.replace("sqlite:///", "")
+        # Keep legacy behaviour: db_path is still populated for any
+        # code that reads it directly.
+        self.database_url = database_url or os.getenv(
+            "DATABASE_URL", "sqlite:///exam_platform.db"
+        )
+        self.db_path = self.database_url.replace("sqlite:///", "")
+        self.driver = driver_name(self.database_url)
 
     # ---------- CONNECTION ----------
     def get_connection(self):
-        conn = sqlite3.connect(self.db_path, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        return conn
+        return get_connection(self.database_url)
 
     # ---------- INIT ----------
     def init_database(self) -> bool:
+        """Create tables for SQLite dev. On Postgres, Alembic owns the schema."""
+        if self.driver == "postgres":
+            logger.info("Postgres detected — skipping init_database (Alembic owns schema)")
+            return True
+
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
@@ -150,6 +163,17 @@ class DatabaseManager:
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT id, username, password_hash, role FROM users WHERE username = ?', (username,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return dict(row)
+        return None
+
+    def get_user_by_id(self, user_id: int) -> Optional[Dict]:
+        """Get user by ID"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, username, email, role FROM users WHERE id = ?', (user_id,))
         row = cursor.fetchone()
         conn.close()
         if row:
@@ -360,6 +384,20 @@ class DatabaseManager:
         conn.close()
         return [dict(row) for row in rows]
 
+    def get_active_sessions_by_exam(self, exam_id: int) -> List[Dict]:
+        """Get all active sessions for a specific exam"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT s.id, s.user_id, s.exam_id, u.username, s.started_at, s.suspicion_score
+            FROM sessions s
+            JOIN users u ON s.user_id = u.id
+            WHERE s.exam_id = ? AND s.status = 'active'
+        ''', (exam_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
     # ---------- PROCTORING OPERATIONS ----------
     def log_proctoring_event(self, session_id: int, event_type: str, severity: str, details: str):
         conn = self.get_connection()
@@ -374,14 +412,47 @@ class DatabaseManager:
     def get_recent_alerts(self, limit: int = 20) -> List[Dict]:
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute(f'''
+        cursor.execute('''
             SELECT pe.event_type, pe.severity, pe.timestamp, u.username
             FROM proctoring_events pe
             JOIN sessions s ON pe.session_id = s.id
             JOIN users u ON s.user_id = u.id
             ORDER BY pe.timestamp DESC
-            LIMIT {limit}
-        ''')
+            LIMIT ?
+        ''', (limit,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def get_proctoring_events(self, exam_id: int = None, session_id: int = None, severity: str = None, limit: int = 100) -> List[Dict]:
+        """Get proctoring events with optional filtering"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        query = '''
+            SELECT pe.id, pe.session_id, pe.event_type, pe.severity, pe.timestamp, pe.details, u.username
+            FROM proctoring_events pe
+            JOIN sessions s ON pe.session_id = s.id
+            JOIN users u ON s.user_id = u.id
+            WHERE 1=1
+        '''
+        params = []
+        
+        if exam_id:
+            query += ' AND s.exam_id = ?'
+            params.append(exam_id)
+        
+        if session_id:
+            query += ' AND s.id = ?'
+            params.append(session_id)
+        
+        if severity:
+            query += ' AND pe.severity = ?'
+            params.append(severity)
+        
+        query += ' ORDER BY pe.timestamp DESC LIMIT ?'
+        params.append(limit)
+        cursor.execute(query, params)
         rows = cursor.fetchall()
         conn.close()
         return [dict(row) for row in rows]

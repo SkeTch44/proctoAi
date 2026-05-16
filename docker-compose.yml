@@ -1,70 +1,222 @@
 version: '3.8'
 
+# ============================================================
+# ProctoAI — local dev stack
+# ------------------------------------------------------------
+# Brings up Postgres + pgBouncer + Redis so the backend can be
+# developed against a production-shaped data layer. App services
+# (auth, exam, etc.) will attach to this stack in P2.
+#
+# Secrets come from .env (see .env.example). Do NOT commit .env.
+# ============================================================
+
 services:
-  # Main Backend API (CPU Only)
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    command: python backend/app.py
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: proctoai-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-proctoai}
+      POSTGRES_USER: ${POSTGRES_USER:-proctoai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-proctoai}
     ports:
-      - "5000:5000"
+      - "5432:5432"
     volumes:
-      - .:/app
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DATABASE_URL=sqlite:///exam_platform.db
-    depends_on:
-      - redis
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-proctoai}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
-  # AI Worker 1 (GPU Enabled)
-  worker1:
-    build:
-      context: .
-      dockerfile: Dockerfile.gpu
-    command: celery -A backend.tasks worker --loglevel=info --pool=solo --hostname=worker1@%h
-    volumes:
-      - .:/app
+  pgbouncer:
+    image: edoburu/pgbouncer:1.21.0
+    container_name: proctoai-pgbouncer
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      DATABASE_URL: postgres://${POSTGRES_USER:-proctoai}:${POSTGRES_PASSWORD:-proctoai}@postgres:5432/${POSTGRES_DB:-proctoai}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 25
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "6432:5432"
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
-  # Additional workers for scaling...
-  worker2:
-    build:
-      context: .
-      dockerfile: Dockerfile.gpu
-    command: celery -A backend.tasks worker --loglevel=info --pool=solo --hostname=worker2@%h
-    volumes:
-      - .:/app
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - NVIDIA_VISIBLE_DEVICES=all
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    depends_on:
-      - redis
-
-  # Message Broker
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
+    container_name: proctoai-redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # --------------------------------------------------------
+  # App services
+  # --------------------------------------------------------
+
+  auth-svc:
+    build: ./services/auth-svc
+    container_name: proctoai-auth-svc
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-proctoai}:${POSTGRES_PASSWORD:-proctoai}@pgbouncer:5432/${POSTGRES_DB:-proctoai}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      DEBUG: "true"
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  exam-svc:
+    build: ./services/exam-svc
+    container_name: proctoai-exam-svc
+    ports:
+      - "8002:8002"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-proctoai}:${POSTGRES_PASSWORD:-proctoai}@pgbouncer:5432/${POSTGRES_DB:-proctoai}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      DEBUG: "true"
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  question-svc:
+    build: ./services/question-svc
+    container_name: proctoai-question-svc
+    ports:
+      - "8003:8003"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-proctoai}:${POSTGRES_PASSWORD:-proctoai}@pgbouncer:5432/${POSTGRES_DB:-proctoai}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      DEBUG: "true"
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  question-worker:
+    build: ./services/question-svc
+    container_name: proctoai-question-worker
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-proctoai}:${POSTGRES_PASSWORD:-proctoai}@pgbouncer:5432/${POSTGRES_DB:-proctoai}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  proctoring-svc:
+    build: ./services/proctoring-svc
+    container_name: proctoai-proctoring-svc
+    ports:
+      - "8004:8004"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-proctoai}:${POSTGRES_PASSWORD:-proctoai}@pgbouncer:5432/${POSTGRES_DB:-proctoai}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Uncomment for GPU access:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  coding-svc:
+    build: ./services/coding-svc
+    container_name: proctoai-coding-svc
+    ports:
+      - "8005:8005"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-proctoai}:${POSTGRES_PASSWORD:-proctoai}@pgbouncer:5432/${POSTGRES_DB:-proctoai}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      REDIS_URL: redis://redis:6379/0
+      JUDGE0_URL: http://judge0:2358
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      DEBUG: "true"
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      judge0:
+        condition: service_started
+    restart: unless-stopped
+
+  judge0:
+    image: judge0/judge0-ce:1.13.1
+    container_name: proctoai-judge0
+    ports:
+      - "2358:2358"
+    environment:
+      REDIS_URL: redis://redis:6379/2
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Security: isolate from host network in production
+    # privileged: true  # Required for cgroups in some setups
+
+  gateway:
+    image: traefik:v3.0
+    container_name: proctoai-gateway
+    ports:
+      - "80:80"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - ./services/gateway/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./services/gateway/routes.yml:/etc/traefik/routes.yml:ro
+    depends_on:
+      - auth-svc
+      - exam-svc
+      - question-svc
+      - proctoring-svc
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: proctoai-network
+    driver: bridge

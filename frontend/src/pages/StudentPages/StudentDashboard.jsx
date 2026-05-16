@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { getUser, logout, getToken } from "../../utils/authStorage";
 import { useNavigate } from "react-router-dom";
+import { API_BASE, getAuthHeader } from "../../utils/apiConfig";
 
 export default function StudentDashboard() {
   const user = getUser();
@@ -27,9 +28,9 @@ export default function StudentDashboard() {
     try {
       setLoading(true);
       const token = getToken();
-      const res = await fetch("http://127.0.0.1:5000/api/student/dashboard", {
+      const res = await fetch(`${API_BASE}/api/student/dashboard`, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
       });
@@ -193,6 +194,118 @@ export default function StudentDashboard() {
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
             Unread messages
           </p>
+        </div>
+      </section>
+
+      {/* Join Exam Section - NEW */}
+      <section className="bg-white dark:bg-[#0f1724] p-6 lg:p-8 rounded-3xl border-2 border-dashed border-blue-400 dark:border-blue-500/50 shadow-xl mb-8">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="text-center md:text-left">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">🚀 Ready for an Exam?</h2>
+            <p className="text-gray-600 dark:text-gray-400">Enter the Exam ID provided by your instructor to join the waiting room.</p>
+          </div>
+          <div className="flex w-full md:w-auto gap-2">
+            <input 
+              type="text" 
+              placeholder="Exam ID (e.g. 1)" 
+              id="exam-id-input"
+              className="flex-1 md:w-48 px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:border-blue-500 transition-all outline-none"
+            />
+            <button 
+              onClick={async () => {
+                const id = document.getElementById('exam-id-input').value;
+                if (!id) return alert("Please enter an Exam ID");
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`${API_BASE}/api/exams/verify/${id}`, {
+                    headers: getAuthHeader()
+                  });
+                  const data = await res.json();
+                  if (data.success) {
+                    navigate(`/student/waiting-room/${id}`);
+                  } else {
+                    alert(data.message || "Exam not found");
+                  }
+                } catch (err) {
+                  alert("Failed to verify exam ID");
+                }
+              }}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition-all transform hover:scale-105"
+            >
+              Join Exam
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Interview & Coding Section */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        {/* Interview Card */}
+        <div className="bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 p-6 rounded-3xl border border-purple-200/50 dark:border-purple-500/30 shadow-lg">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/50 rounded-2xl flex items-center justify-center">
+              <span className="text-2xl">🎥</span>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Online Interview</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">1:1 video interview with AI proctoring</p>
+            </div>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+            Join a live interview session. AI monitors for integrity while you focus on the conversation.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Interview Session ID"
+              id="interview-id-input"
+              className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm outline-none focus:border-purple-500"
+            />
+            <button
+              onClick={() => {
+                const id = document.getElementById('interview-id-input').value;
+                if (!id) return alert("Enter an Interview Session ID");
+                navigate(`/student/interview/${id}`);
+              }}
+              className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-sm shadow-lg transition-all"
+            >
+              Join Interview
+            </button>
+          </div>
+        </div>
+
+        {/* Coding Test Card */}
+        <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 p-6 rounded-3xl border border-green-200/50 dark:border-green-500/30 shadow-lg">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 bg-green-100 dark:bg-green-900/50 rounded-2xl flex items-center justify-center">
+              <span className="text-2xl">💻</span>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Coding Challenge</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">DSA & coding problems with AI scoring</p>
+            </div>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+            Solve coding problems in a full IDE. Your code is graded by test cases + AI review.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Problem ID (e.g. 1)"
+              id="coding-id-input"
+              className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm outline-none focus:border-green-500"
+            />
+            <button
+              onClick={() => {
+                const id = document.getElementById('coding-id-input').value;
+                if (!id) return alert("Enter a Problem ID");
+                navigate(`/student/coding/${id}`);
+              }}
+              className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg text-sm shadow-lg transition-all"
+            >
+              Start Coding
+            </button>
+          </div>
         </div>
       </section>
 

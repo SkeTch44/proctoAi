@@ -1,214 +1,291 @@
+"""
+Multi-Layer PDF Extractor
+-------------------------
+Goal: produce CLEAN, LINE-PRESERVED text blocks so the downstream
+question parser gets sensible input.
+
+Extraction strategy (in order):
+  1. pdfplumber  -> line-accurate text from digital PDFs
+  2. PyPDF2      -> fallback if pdfplumber is missing
+  3. OCR         -> scanned/image PDFs (Tesseract)
+
+Output format (list of dicts):
+    {
+        "text": "Q1. What is the capital of France?",
+        "page": 1,
+        "line_no": 12,
+        "bbox": [x0, y0, x1, y1],   # optional
+        "font_size": 11.0,           # optional
+        "extraction_method": "pdfplumber" | "pypdf2" | "ocr"
+    }
+
+Each dict is ONE LINE of text (not an arbitrary word cluster).
+This is the key design change: the parser relies on meaningful
+line boundaries to detect questions, options and answer markers.
+"""
+
+from __future__ import annotations
 
 import logging
 import os
 import re
-from typing import List, Dict, Optional, Tuple, Union
-import math
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+
 class MultiLayerPDFExtractor:
-    """
-    3-layer PDF extraction pipeline:
-    1. Text PDF -> pdfplumber (Fast, accurate for digital PDFs)
-    2. Scanned PDF -> pytesseract (OCR fallback)
-    3. Layout -> pdfminer.six (Structure analysis)
-    """
-    
-    def __init__(self, use_ocr: bool = True):
+    def __init__(self, use_ocr: bool = True, line_tolerance: float = 3.0):
         self.use_ocr = use_ocr
-        self._check_dependencies()
-        
-    def _check_dependencies(self):
-        """Check availability of extraction libraries"""
+        self.line_tolerance = line_tolerance
+        self._probe_dependencies()
+
+    # ------------------------------------------------------------------ #
+    # Dependency probing
+    # ------------------------------------------------------------------ #
+    def _probe_dependencies(self) -> None:
         self.has_pdfplumber = False
+        self.has_pypdf2 = False
         self.has_ocr = False
-        self.has_pdfminer = False
-        
+
         try:
-            import pdfplumber
+            import pdfplumber  # noqa: F401
             self.has_pdfplumber = True
         except ImportError:
-            logger.warning("pdfplumber not found. Install with: pip install pdfplumber")
-            
+            logger.warning("pdfplumber not installed (pip install pdfplumber)")
+
         try:
-            import pytesseract
-            from PIL import Image
+            from PyPDF2 import PdfReader  # noqa: F401
+            self.has_pypdf2 = True
+        except ImportError:
+            try:
+                from pypdf import PdfReader  # noqa: F401
+                self.has_pypdf2 = True
+            except ImportError:
+                logger.debug("PyPDF2/pypdf not installed")
+
+        try:
+            import pytesseract  # noqa: F401
+            from PIL import Image  # noqa: F401
             self.has_ocr = True
         except ImportError:
-            logger.warning("pytesseract/Pillow not found. OCR disabled.")
-            
-        try:
-            from pdfminer.high_level import extract_pages
-            self.has_pdfminer = True
-        except ImportError:
-            logger.warning("pdfminer.six not found. Layout analysis disabled.")
+            logger.debug("pytesseract/Pillow not installed - OCR disabled")
 
+    # ------------------------------------------------------------------ #
+    # Public entry point
+    # ------------------------------------------------------------------ #
     def extract(self, pdf_path: str) -> List[Dict]:
-        """
-        Extract content from PDF with best available method
-        
-        Returns:
-        [
-            {
-                "text": "...",
-                "page": 4,
-                "bbox": [x1, y1, x2, y2],
-                "font_size": 11,
-                "block_id": "p4_b12",
-                "extraction_method": "text" | "ocr" | "layout"
-            }
-        ]
-        """
         if not os.path.exists(pdf_path):
-            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
-            
-        # Try pure text extraction first (fastest & most accurate for digital PDFs)
-        blocks = []
+            raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
+        blocks: List[Dict] = []
+
         if self.has_pdfplumber:
             try:
                 blocks = self._extract_with_pdfplumber(pdf_path)
             except Exception as e:
-                logger.error(f"pdfplumber extraction failed: {e}")
-        
-        # If extraction yielded little text, try OCR if enabled
-        char_count = sum(len(b['text']) for b in blocks)
-        if char_count < 100 and self.use_ocr and self.has_ocr:
-            logger.info("Low text yield. Attempting OCR fallback...")
+                logger.error(f"pdfplumber failed: {e}")
+
+        if not blocks and self.has_pypdf2:
+            try:
+                blocks = self._extract_with_pypdf2(pdf_path)
+            except Exception as e:
+                logger.error(f"PyPDF2 fallback failed: {e}")
+
+        # If text yield is tiny, treat PDF as scanned and OCR it
+        total_chars = sum(len(b["text"]) for b in blocks)
+        if total_chars < 200 and self.use_ocr and self.has_ocr:
+            logger.info("Low text yield - attempting OCR fallback")
             try:
                 ocr_blocks = self._extract_with_ocr(pdf_path)
-                if sum(len(b['text']) for b in ocr_blocks) > char_count:
+                if sum(len(b["text"]) for b in ocr_blocks) > total_chars:
                     blocks = ocr_blocks
-                    logger.info("OCR extraction successful")
             except Exception as e:
-                logger.error(f"OCR extraction failed: {e}")
-                
-        # If we have blocks but missing layout info, try to enrich with pdfminer
-        # (pdfplumber usually provides good layout data, so this is secondary)
-        
+                logger.error(f"OCR fallback failed: {e}")
+
+        logger.info(
+            f"Extracted {len(blocks)} line-blocks from {pdf_path} "
+            f"({total_chars} chars)"
+        )
         return blocks
 
+    # ------------------------------------------------------------------ #
+    # pdfplumber - line-preserving extraction
+    # ------------------------------------------------------------------ #
     def _extract_with_pdfplumber(self, pdf_path: str) -> List[Dict]:
         import pdfplumber
-        
-        parameters = {
-            "vertical_strategy": "lines", 
-            "horizontal_strategy": "lines",
-            "intersection_y_tolerance": 5
-        }
-        
-        blocks = []
-        
+
+        blocks: List[Dict] = []
+        line_counter = 0
+
         with pdfplumber.open(pdf_path) as pdf:
-            for page_num, page in enumerate(pdf.pages):
-                # Extract words to get detailed font info and generic layout
-                # We group words into visual blocks based on proximity
-                
-                # Simple extraction: extract_words gives x0,top,x1,bottom,text,fontname,size
-                words = page.extract_words(extra_attrs=['fontname', 'size'])
-                
-                # Group words into lines/blocks (basic clustering)
-                current_block = []
-                current_y = -1
-                
-                for word in words:
-                    # New line detection (tolerance of 5 units)
-                    if current_y == -1:
-                        current_y = word['top']
-                    
-                    if abs(word['top'] - current_y) > 5:
-                        # Flush current block
-                        if current_block:
-                            blocks.append(self._create_block_from_words(current_block, page_num + 1))
-                        current_block = []
-                        current_y = word['top']
-                    
-                    current_block.append(word)
-                
-                # Flush final block
-                if current_block:
-                    blocks.append(self._create_block_from_words(current_block, page_num + 1))
-                    
+            for page_idx, page in enumerate(pdf.pages):
+                page_num = page_idx + 1
+
+                # Use word-level data so we can group into LINES by y-position.
+                try:
+                    words = page.extract_words(
+                        extra_attrs=["fontname", "size"],
+                        keep_blank_chars=False,
+                        use_text_flow=True,
+                    )
+                except Exception:
+                    words = page.extract_words()
+
+                if not words:
+                    # Last-resort: page.extract_text already returns newline-split text
+                    raw = page.extract_text() or ""
+                    for raw_line in raw.splitlines():
+                        text = raw_line.strip()
+                        if text:
+                            line_counter += 1
+                            blocks.append({
+                                "text": text,
+                                "page": page_num,
+                                "line_no": line_counter,
+                                "extraction_method": "pdfplumber",
+                            })
+                    continue
+
+                # Group words into lines by top-coordinate within tolerance.
+                words_sorted = sorted(words, key=lambda w: (round(w["top"], 1), w["x0"]))
+                current_line: List[Dict] = []
+                current_top: Optional[float] = None
+
+                def flush(line_words: List[Dict]) -> None:
+                    nonlocal line_counter
+                    if not line_words:
+                        return
+                    line_words_sorted = sorted(line_words, key=lambda w: w["x0"])
+                    text = " ".join(w["text"] for w in line_words_sorted).strip()
+                    if not text:
+                        return
+                    line_counter += 1
+                    x0 = min(w["x0"] for w in line_words_sorted)
+                    y0 = min(w["top"] for w in line_words_sorted)
+                    x1 = max(w["x1"] for w in line_words_sorted)
+                    y1 = max(w["bottom"] for w in line_words_sorted)
+                    avg_size = sum(
+                        float(w.get("size", 10)) for w in line_words_sorted
+                    ) / len(line_words_sorted)
+                    blocks.append({
+                        "text": text,
+                        "page": page_num,
+                        "line_no": line_counter,
+                        "bbox": [x0, y0, x1, y1],
+                        "font_size": round(avg_size, 1),
+                        "extraction_method": "pdfplumber",
+                    })
+
+                for w in words_sorted:
+                    top = w["top"]
+                    if current_top is None:
+                        current_top = top
+                        current_line = [w]
+                        continue
+                    if abs(top - current_top) <= self.line_tolerance:
+                        current_line.append(w)
+                    else:
+                        flush(current_line)
+                        current_line = [w]
+                        current_top = top
+                flush(current_line)
+
         return blocks
 
-    def _create_block_from_words(self, words: List[Dict], page_num: int) -> Dict:
-        """Aggregate words into a block"""
-        text = " ".join(w['text'] for w in words)
-        
-        # Calculate bounding box
-        x0 = min(w['x0'] for w in words)
-        top = min(w['top'] for w in words)
-        x1 = max(w['x1'] for w in words)
-        bottom = max(w['bottom'] for w in words)
-        
-        # Average font size (weighted by text length might be better, but average is ok)
-        avg_font_size = sum(float(w.get('size', 10)) for w in words) / len(words)
-        
-        return {
-            "text": text,
-            "page": page_num,
-            "bbox": [x0, top, x1, bottom],
-            "font_size": round(avg_font_size, 1),
-            "block_id": f"p{page_num}_b{int(top)}_{int(x0)}", # Deterministic ID based on position
-            "extraction_method": "pdfplumber"
-        }
+    # ------------------------------------------------------------------ #
+    # PyPDF2 fallback - only when pdfplumber unavailable
+    # ------------------------------------------------------------------ #
+    def _extract_with_pypdf2(self, pdf_path: str) -> List[Dict]:
+        try:
+            from PyPDF2 import PdfReader
+        except ImportError:
+            from pypdf import PdfReader
 
+        reader = PdfReader(pdf_path)
+        blocks: List[Dict] = []
+        line_counter = 0
+
+        for page_idx, page in enumerate(reader.pages):
+            page_num = page_idx + 1
+            try:
+                raw = page.extract_text() or ""
+            except Exception as e:
+                logger.warning(f"Page {page_num} extraction failed: {e}")
+                continue
+            for raw_line in raw.splitlines():
+                text = raw_line.strip()
+                if text:
+                    line_counter += 1
+                    blocks.append({
+                        "text": text,
+                        "page": page_num,
+                        "line_no": line_counter,
+                        "extraction_method": "pypdf2",
+                    })
+
+        return blocks
+
+    # ------------------------------------------------------------------ #
+    # OCR fallback - for scanned PDFs
+    # ------------------------------------------------------------------ #
     def _extract_with_ocr(self, pdf_path: str) -> List[Dict]:
-        """Convert PDF to images and run Tesseract"""
         from pdf2image import convert_from_path
         import pytesseract
-        
-        # Convert PDF to list of images
-        images = convert_from_path(pdf_path)
-        blocks = []
-        
-        for i, image in enumerate(images):
-            # Get verbose data including boxes, confidences, line and page numbers
-            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-            
-            n_boxes = len(data['text'])
-            current_line_words = []
-            last_line_num = -1
-            
-            for j in range(n_boxes):
-                if int(data['conf'][j]) > 30 and data['text'][j].strip():
-                    line_num = data['line_num'][j]
-                    
-                    if line_num != last_line_num:
-                        if current_line_words:
-                            blocks.append(self._create_ocr_block(current_line_words, i + 1))
-                        current_line_words = []
-                        last_line_num = line_num
-                    
-                    current_line_words.append({
-                        'text': data['text'][j],
-                        'left': data['left'][j],
-                        'top': data['top'][j],
-                        'width': data['width'][j],
-                        'height': data['height'][j]
-                    })
-            
-            if current_line_words:
-                 blocks.append(self._create_ocr_block(current_line_words, i + 1))
-                 
-        return blocks
 
-    def _create_ocr_block(self, words: List[Dict], page_num: int) -> Dict:
-        text = " ".join(w['text'] for w in words)
-        
-        x0 = min(w['left'] for w in words)
-        y0 = min(w['top'] for w in words)
-        x1 = max(w['left'] + w['width'] for w in words)
-        y1 = max(w['top'] + w['height'] for w in words)
-        
-        # Estimate font size from height
-        avg_height = sum(w['height'] for w in words) / len(words)
-        
-        return {
-            "text": text,
-            "page": page_num,
-            "bbox": [x0, y0, x1, y1],
-            "font_size": round(avg_height * 0.75, 1), # Approx conversion px -> pt
-            "block_id": f"p{page_num}_b{int(y0)}_{int(x0)}_ocr",
-            "extraction_method": "ocr"
-        }
+        images = convert_from_path(pdf_path)
+        blocks: List[Dict] = []
+        line_counter = 0
+
+        for i, image in enumerate(images):
+            page_num = i + 1
+            data = pytesseract.image_to_data(
+                image, output_type=pytesseract.Output.DICT
+            )
+            n = len(data["text"])
+            current_line_words: List[Dict] = []
+            last_line_num = -1
+
+            def flush_ocr(words: List[Dict]) -> None:
+                nonlocal line_counter
+                if not words:
+                    return
+                text = " ".join(w["text"] for w in words).strip()
+                if not text:
+                    return
+                line_counter += 1
+                x0 = min(w["left"] for w in words)
+                y0 = min(w["top"] for w in words)
+                x1 = max(w["left"] + w["width"] for w in words)
+                y1 = max(w["top"] + w["height"] for w in words)
+                blocks.append({
+                    "text": text,
+                    "page": page_num,
+                    "line_no": line_counter,
+                    "bbox": [x0, y0, x1, y1],
+                    "extraction_method": "ocr",
+                })
+
+            for j in range(n):
+                try:
+                    conf = int(data["conf"][j])
+                except (ValueError, TypeError):
+                    conf = -1
+                token = data["text"][j].strip()
+                if conf < 30 or not token:
+                    continue
+                line_num = (data["block_num"][j], data["par_num"][j], data["line_num"][j])
+                if last_line_num != -1 and line_num != last_line_num:
+                    flush_ocr(current_line_words)
+                    current_line_words = []
+                last_line_num = line_num
+                current_line_words.append({
+                    "text": token,
+                    "left": data["left"][j],
+                    "top": data["top"][j],
+                    "width": data["width"][j],
+                    "height": data["height"][j],
+                })
+            flush_ocr(current_line_words)
+
+        return blocks

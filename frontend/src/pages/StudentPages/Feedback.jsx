@@ -1,6 +1,6 @@
 // src/pages/student/Feedback.jsx
-import React, { useState, useEffect } from "react";
 import { getToken } from "../../utils/authStorage";
+import { API_BASE, getAuthHeader } from "../../utils/apiConfig";
 
 export default function Feedback() {
   const [feedbackForm, setFeedbackForm] = useState({
@@ -25,8 +25,8 @@ export default function Feedback() {
   const fetchFeedback = async () => {
     try {
       const token = getToken();
-      const res = await fetch("http://localhost:5000/api/feedback", {
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await fetch(`${API_BASE}/api/feedback`, {
+        headers: getAuthHeader()
       });
       if (res.ok) {
         const data = await res.json();
@@ -49,10 +49,10 @@ export default function Feedback() {
 
     try {
       const token = getToken();
-      const res = await fetch("http://localhost:5000/api/feedback", {
+      const res = await fetch(`${API_BASE}/api/feedback`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeader(),
           "Content-Type": "application/json"
         },
         body: JSON.stringify(feedbackForm)

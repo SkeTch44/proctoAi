@@ -19,7 +19,7 @@ class RAGEngine:
     - Metadata tracking
     """
     
-    def __init__(self, store_path: str = "backend/db/rag_strore", model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, store_path: str = "backend/db/rag_store", model_name: str = "all-MiniLM-L6-v2"):
         """
         Initialize RAG Engine
         
@@ -31,14 +31,10 @@ class RAGEngine:
         self.model_name = model_name
         self.index_path = os.path.join(store_path, "faiss_index.bin")
         self.metadata_path = os.path.join(store_path, "metadata.pkl")
+        self._model = None  # Lazy-loaded
         
         # Ensure store directory exists
         os.makedirs(store_path, exist_ok=True)
-        
-        # Initialize sentence transformer model
-        logger.info(f"Loading sentence transformer model: {model_name}")
-        self.model = SentenceTransformer(model_name)
-        self.embedding_dim = self.model.get_sentence_embedding_dimension()
         
         # Initialize or load FAISS index
         self.index = None
@@ -46,6 +42,19 @@ class RAGEngine:
         self._load_or_create_index()
         
         logger.info(f"RAG Engine initialized with {len(self.metadata)} existing chunks")
+    
+    @property
+    def model(self):
+        """Lazy-load SentenceTransformer model on first use"""
+        if self._model is None:
+            logger.info(f"Lazy-loading sentence transformer model: {self.model_name}")
+            self._model = SentenceTransformer(self.model_name)
+        return self._model
+    
+    @property
+    def embedding_dim(self):
+        """Get embedding dimension from the model"""
+        return self.model.get_sentence_embedding_dimension()
     
     def _load_or_create_index(self):
         """Load existing FAISS index or create new one"""

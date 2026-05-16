@@ -1,24 +1,42 @@
 """
-Question Parser - Extract questions from PDFs
+Question Parser
+---------------
+Turns line-level PDF blocks into clean, structured questions.
 
-Detects question patterns in text extracted from PDFs:
-- Numbered questions (1., 2., Q1, Q2, Question 1)
-- MCQ options (A), B), a., b., (a), (b))
-- True/False questions
-- Fill in the blanks (_____, ______)
-- Short answer / Essay markers
+Pipeline
+  1. Pre-clean:
+       - drop page headers / footers / page numbers / noise
+       - detect and separate the "Answer Key" section
+  2. Segment:
+       - group lines into one "segment" per question using
+         numbered-question start patterns (1., Q1., Q1), (1), [1], etc.)
+  3. Parse each segment:
+       - split out inline MCQ options
+         (e.g. "(A) Apple (B) Banana (C) Cherry (D) Date")
+       - detect inline answer markers
+         (e.g. "Ans: B", "Answer - Paris", "Correct: C")
+       - extract marks tags like "[2 marks]"
+  4. Merge the separate Answer Key into the corresponding questions.
+
+The parser is defensive: if something looks malformed it lowers the
+confidence score instead of crashing.
 """
 
-import re
+from __future__ import annotations
+
 import logging
-from typing import List, Dict, Optional, Tuple
+import re
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
-class DetectedQuestionType(Enum):
+# --------------------------------------------------------------------- #
+# Data classes
+# --------------------------------------------------------------------- #
+class DetectedQuestionType(str, Enum):
     MCQ = "mcq"
     TRUE_FALSE = "true_false"
     FILL_BLANKS = "fill_blanks"
@@ -30,356 +48,494 @@ class DetectedQuestionType(Enum):
 
 @dataclass
 class ParsedQuestion:
-    """Represents a question extracted from a PDF"""
     question_number: int
     question_text: str
     question_type: DetectedQuestionType
-    options: Dict[str, str] = field(default_factory=dict)  # For MCQ: {"A": "...", "B": "..."}
-    correct_answer: Optional[str] = None  # If detectable
+    options: Dict[str, str] = field(default_factory=dict)
+    correct_answer: Optional[str] = None
     marks: Optional[int] = None
     page_number: Optional[int] = None
-    confidence: float = 0.0  # 0-1 confidence score
+    confidence: float = 0.0
 
 
+# --------------------------------------------------------------------- #
+# Regex library (compiled once)
+# --------------------------------------------------------------------- #
+# A line that STARTS a question. Captures (number, rest-of-text).
+_RE_QUESTION_START = re.compile(
+    r"""^\s*
+        (?:Q(?:uestion)?\s*\.?\s*|Ques\s*\.?\s*)?      # optional Q/Question/Ques
+        (?:\(\s*(\d{1,3})\s*\)|\[\s*(\d{1,3})\s*\]|(\d{1,3}))  # number
+        \s*[\.\):\-\]]\s+                               # separator
+        (.*)$
+    """,
+    re.VERBOSE,
+)
+
+# Inline option splitter. Works for:
+#   A) foo   A. foo   (A) foo   A: foo   a) foo   (a) foo
+_RE_INLINE_OPTION = re.compile(
+    r"""(?:(?<=\s)|^|(?<=[\.\)\]]))   # must be at start or after space/punct
+        (?:\(([A-Ha-h])\)|([A-Ha-h])[\)\.:])  # (A) or A) or A. or A:
+        \s+
+    """,
+    re.VERBOSE,
+)
+
+# Standalone option line: "A) option text" or "(a) option text"
+_RE_OPTION_LINE = re.compile(
+    r"""^\s*
+        (?:\(([A-Ha-h])\)|([A-Ha-h])[\)\.:])   # option letter
+        \s+(.+)$
+    """,
+    re.VERBOSE,
+)
+
+# Answer markers inside / after a question.
+#   "Answer: B", "Ans. C", "Correct answer - Paris", "Solution: 42"
+_RE_INLINE_ANSWER = re.compile(
+    r"""\b(?:Answer|Ans|Correct\s+Answer|Solution|Correct|Key)
+        \s*[\.\:\-–—]\s*
+        ([^\n]+?)
+        \s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# Marks tag: [2 marks], (3 pts)
+_RE_MARKS = re.compile(
+    r"[\[\(]\s*(\d{1,3})\s*(?:marks?|pts?|points?|m)\s*[\]\)]",
+    re.IGNORECASE,
+)
+
+# Answer-Key section header (rest of document becomes answer key)
+_RE_ANSWER_KEY_HEADER = re.compile(
+    r"^\s*(?:answers?\s*key|answer\s*sheet|answers?|solutions?|key)\s*[:\-]?\s*$",
+    re.IGNORECASE,
+)
+
+# Answer-key line inside the key section:
+#   "1. B"   "1) B"   "Q1 - B"   "1: Paris"
+_RE_ANSWER_KEY_ENTRY = re.compile(
+    r"""^\s*
+        (?:Q(?:uestion)?\s*\.?\s*)?
+        (\d{1,3})
+        \s*[\.\)\:\-]\s*
+        (.+?)\s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# Noise patterns: page numbers, copyright, URLs
+_RE_NOISE = [
+    re.compile(r"^page\s*\d+\s*(of\s*\d+)?\s*$", re.IGNORECASE),
+    re.compile(r"^\-\s*\d+\s*\-$"),
+    re.compile(r"^\d+\s*$"),
+    re.compile(r"^©.*$"),
+    re.compile(r"^copyright\b.*$", re.IGNORECASE),
+    re.compile(r"^all rights reserved\s*\.?$", re.IGNORECASE),
+    re.compile(r"^https?://\S+$"),
+    re.compile(r"^www\.\S+$"),
+]
+
+# True/false indicators
+_RE_TRUE_FALSE = re.compile(
+    r"\b(true\s*/\s*or\s+false|true\s*/\s*false|t\s*/\s*f|state\s+(?:if|whether)\b)",
+    re.IGNORECASE,
+)
+
+# Fill-in-the-blanks indicators
+_RE_BLANK = re.compile(r"(_{3,}|\.{4,}|<\s*blank\s*>|\[\s*_+\s*\])", re.IGNORECASE)
+
+# Essay markers
+_ESSAY_KEYWORDS = (
+    "discuss", "explain", "describe", "analyze", "analyse",
+    "evaluate", "compare", "elaborate", "justify", "illustrate",
+)
+
+
+# --------------------------------------------------------------------- #
+# Parser
+# --------------------------------------------------------------------- #
 class QuestionParser:
-    """
-    Parse extracted PDF content to detect and extract questions.
-    
-    Supports multiple question formats and patterns commonly found in exam papers.
-    """
-    
-    # Question number patterns
-    QUESTION_PATTERNS = [
-        r'^(?:Q(?:uestion)?\.?\s*)?(\d+)\s*[.):]\s*(.+)',  # Q1. or Question 1: or 1.
-        r'^(?:Q(?:uestion)?\.?\s*)?(\d+)\s*\]\s*(.+)',      # Q1] format
-        r'^\[(\d+)\]\s*(.+)',                               # [1] format
-        r'^(?:Part\s+)?([A-Z])\s*[.):]\s*(.+)',            # Part A. or A)
-    ]
-    
-    # MCQ option patterns
-    OPTION_PATTERNS = [
-        r'^([A-Da-d])\s*[.):\]]\s*(.+)',     # A) or a. or A: or A]
-        r'^\(([A-Da-d])\)\s*(.+)',            # (A) or (a)
-        r'^([i-v]+)\s*[.)]\s*(.+)',           # Roman numerals i) ii)
-    ]
-    
-    # True/False patterns
-    TRUE_FALSE_PATTERNS = [
-        r'\b(True\s+or\s+False|T\s*/\s*F|True/False)\b',
-        r'\bState\s+(?:whether|if)\s+.*\s+(?:true|false)\b',
-    ]
-    
-    # Fill in the blanks patterns
-    FILL_BLANKS_PATTERNS = [
-        r'_{3,}',          # _____ (3 or more underscores)
-        r'\[\.{3,}\]',     # [...] 
-        r'\(\s*\)',        # Empty parentheses
-        r'<blank>',        # <blank> marker
-    ]
-    
-    # Marks/Points patterns
-    MARKS_PATTERNS = [
-        r'\[(\d+)\s*(?:marks?|pts?|points?)\]',
-        r'\((\d+)\s*(?:marks?|pts?|points?)\)',
-        r'(?:marks?|pts?|points?)\s*[:=]\s*(\d+)',
-    ]
-    
-    def __init__(self):
-        self.compiled_question_patterns = [re.compile(p, re.IGNORECASE | re.MULTILINE) for p in self.QUESTION_PATTERNS]
-        self.compiled_option_patterns = [re.compile(p, re.IGNORECASE) for p in self.OPTION_PATTERNS]
-        self.compiled_tf_patterns = [re.compile(p, re.IGNORECASE) for p in self.TRUE_FALSE_PATTERNS]
-        self.compiled_blank_patterns = [re.compile(p) for p in self.FILL_BLANKS_PATTERNS]
-        self.compiled_marks_patterns = [re.compile(p, re.IGNORECASE) for p in self.MARKS_PATTERNS]
-    
+    """Convert line-blocks into ParsedQuestion objects."""
+
+    def __init__(self) -> None:
+        pass
+
+    # --------- Public API --------- #
     def parse(self, text_blocks: List[Dict]) -> List[ParsedQuestion]:
-        """
-        Parse text blocks extracted from PDF to detect questions.
-        
-        Args:
-            text_blocks: List of dicts with 'text', 'page', 'bbox' keys
-            
-        Returns:
-            List of ParsedQuestion objects
-        """
-        # Combine blocks into full text with page markers
-        full_text = self._prepare_text(text_blocks)
-        
-        # Split into potential questions
-        question_segments = self._segment_questions(full_text)
-        
-        # Parse each segment
-        parsed_questions = []
-        for i, segment in enumerate(question_segments):
-            parsed = self._parse_segment(segment, i + 1)
-            if parsed:
-                parsed_questions.append(parsed)
-        
-        logger.info(f"Parsed {len(parsed_questions)} questions from {len(text_blocks)} text blocks")
-        return parsed_questions
-    
-    def _prepare_text(self, text_blocks: List[Dict]) -> str:
-        """Combine text blocks into searchable text"""
-        lines = []
-        current_page = 0
-        
-        for block in text_blocks:
-            page = block.get('page', 0)
-            text = block.get('text', '').strip()
-            
-            if page != current_page:
-                lines.append(f"\n[PAGE {page}]\n")
-                current_page = page
-            
-            if text:
-                lines.append(text)
-        
-        return '\n'.join(lines)
-    
-    def _segment_questions(self, full_text: str) -> List[Dict]:
-        """Split text into question segments"""
-        segments = []
-        lines = full_text.split('\n')
-        
-        current_segment = {
-            'lines': [],
-            'page': 1,
-            'question_number': None
-        }
-        
-        for line in lines:
-            # Check for page marker
-            page_match = re.match(r'\[PAGE (\d+)\]', line)
-            if page_match:
-                current_segment['page'] = int(page_match.group(1))
+        lines = self._blocks_to_lines(text_blocks)
+        lines = self._strip_noise(lines)
+        body_lines, answer_key = self._split_answer_key(lines)
+        segments = self._segment_questions(body_lines)
+
+        parsed: List[ParsedQuestion] = []
+        for idx, seg in enumerate(segments, start=1):
+            q = self._parse_segment(seg, idx)
+            if q:
+                parsed.append(q)
+
+        if answer_key:
+            self._apply_answer_key(parsed, answer_key)
+
+        logger.info(
+            f"Parsed {len(parsed)} questions "
+            f"(answer key entries: {len(answer_key)})"
+        )
+        return parsed
+
+    def parse_raw_text(
+        self, raw_text: str, topic: str = "Extracted Questions"
+    ) -> List[Dict]:
+        """Convenience wrapper: accept plain text, return question-bank dicts."""
+        fake_blocks = [
+            {"text": line, "page": 1, "line_no": i}
+            for i, line in enumerate(raw_text.splitlines(), start=1)
+            if line.strip()
+        ]
+        parsed = self.parse(fake_blocks)
+        return [self._to_bank_dict(q, topic) for q in parsed]
+
+    # --------- Stage 1: line prep + noise --------- #
+    @staticmethod
+    def _blocks_to_lines(blocks: List[Dict]) -> List[Dict]:
+        out: List[Dict] = []
+        for b in blocks:
+            text = (b.get("text") or "").strip()
+            if not text:
                 continue
-            
-            # Check if this line starts a new question
-            question_match = self._match_question_start(line)
-            if question_match:
-                # Save previous segment if it has content
-                if current_segment['lines']:
-                    segments.append(current_segment.copy())
-                
-                # Start new segment
-                current_segment = {
-                    'lines': [line],
-                    'page': current_segment['page'],
-                    'question_number': question_match.get('number')
+            # Collapse multiple internal whitespace to single space.
+            text = re.sub(r"[ \t]+", " ", text)
+            out.append({
+                "text": text,
+                "page": b.get("page", 1),
+                "line_no": b.get("line_no"),
+            })
+        return out
+
+    @staticmethod
+    def _strip_noise(lines: List[Dict]) -> List[Dict]:
+        cleaned: List[Dict] = []
+        for ln in lines:
+            txt = ln["text"].strip()
+            if not txt:
+                continue
+            if any(p.match(txt) for p in _RE_NOISE):
+                continue
+            cleaned.append(ln)
+        return cleaned
+
+    # --------- Stage 2: answer-key isolation --------- #
+    @staticmethod
+    def _split_answer_key(
+        lines: List[Dict],
+    ) -> Tuple[List[Dict], Dict[int, str]]:
+        """
+        If the document contains an "Answer Key" section, split it off
+        and parse each "N. X" line into {question_number: answer_text}.
+        """
+        header_idx = -1
+        for i, ln in enumerate(lines):
+            if _RE_ANSWER_KEY_HEADER.match(ln["text"]):
+                # Only treat it as the answer key when it's near the end
+                # AND at least 2 following lines look like "N. X".
+                tail = lines[i + 1: i + 12]
+                matches = sum(
+                    1 for t in tail if _RE_ANSWER_KEY_ENTRY.match(t["text"])
+                )
+                if matches >= 2:
+                    header_idx = i
+                    break
+
+        if header_idx == -1:
+            return lines, {}
+
+        body = lines[:header_idx]
+        key_lines = lines[header_idx + 1:]
+
+        answers: Dict[int, str] = {}
+        for ln in key_lines:
+            m = _RE_ANSWER_KEY_ENTRY.match(ln["text"])
+            if not m:
+                continue
+            try:
+                q_num = int(m.group(1))
+            except ValueError:
+                continue
+            answers[q_num] = m.group(2).strip().rstrip(".")
+
+        logger.info(f"Answer-key section detected with {len(answers)} entries")
+        return body, answers
+
+    # --------- Stage 3: segment by question number --------- #
+    @staticmethod
+    def _segment_questions(lines: List[Dict]) -> List[Dict]:
+        segments: List[Dict] = []
+        current: Optional[Dict] = None
+
+        for ln in lines:
+            m = _RE_QUESTION_START.match(ln["text"])
+            if m:
+                number = next(g for g in m.groups()[:3] if g)
+                rest = m.group(4)
+                if current:
+                    segments.append(current)
+                current = {
+                    "question_number": int(number),
+                    "page": ln["page"],
+                    "lines": [rest.strip()] if rest.strip() else [],
                 }
-            else:
-                current_segment['lines'].append(line)
-        
-        # Don't forget last segment
-        if current_segment['lines']:
-            segments.append(current_segment)
-        
+            elif current is not None:
+                current["lines"].append(ln["text"])
+            # Lines before the first question are ignored.
+
+        if current:
+            segments.append(current)
         return segments
-    
-    def _match_question_start(self, line: str) -> Optional[Dict]:
-        """Check if line starts a new question"""
-        line = line.strip()
-        
-        for pattern in self.compiled_question_patterns:
-            match = pattern.match(line)
-            if match:
-                return {
-                    'number': match.group(1),
-                    'text': match.group(2) if len(match.groups()) > 1 else ''
-                }
-        
-        return None
-    
-    def _parse_segment(self, segment: Dict, fallback_number: int) -> Optional[ParsedQuestion]:
-        """Parse a single question segment"""
-        lines = segment['lines']
+
+    # --------- Stage 4: per-segment parsing --------- #
+    def _parse_segment(
+        self, segment: Dict, fallback_number: int
+    ) -> Optional[ParsedQuestion]:
+        lines: List[str] = segment.get("lines", [])
         if not lines:
             return None
-        
-        full_text = '\n'.join(lines)
-        
-        # Detect question type
-        q_type = self._detect_question_type(full_text)
-        
-        # Extract question text and options
-        question_text, options = self._extract_question_and_options(lines)
-        
-        if not question_text or len(question_text) < 5:
+
+        # 1. Remove any inline answer marker, remember the answer it stated.
+        inline_answer: Optional[str] = None
+        cleaned_lines: List[str] = []
+        for ln in lines:
+            m = _RE_INLINE_ANSWER.search(ln)
+            if m:
+                inline_answer = m.group(1).strip().rstrip(".")
+                ln = ln[: m.start()].rstrip()
+                if not ln:
+                    continue
+            cleaned_lines.append(ln)
+
+        # 2. Extract marks tag (then strip it from the text).
+        marks: Optional[int] = None
+        stripped_lines: List[str] = []
+        for ln in cleaned_lines:
+            m = _RE_MARKS.search(ln)
+            if m:
+                try:
+                    marks = int(m.group(1))
+                except ValueError:
+                    pass
+                ln = _RE_MARKS.sub("", ln).strip()
+                if not ln:
+                    continue
+            stripped_lines.append(ln)
+
+        # 3. Split question body from options.
+        question_text, options = self._split_question_and_options(stripped_lines)
+        if not question_text or len(question_text) < 3:
             return None
-        
-        # Extract marks if present
-        marks = self._extract_marks(full_text)
-        
-        # Determine question number
-        q_number = segment.get('question_number')
-        if q_number:
-            try:
-                q_number = int(q_number)
-            except ValueError:
-                q_number = fallback_number
-        else:
-            q_number = fallback_number
-        
-        # Calculate confidence
-        confidence = self._calculate_confidence(question_text, options, q_type)
-        
+
+        q_type = self._detect_type(question_text, options)
+
+        # 4. Validate the inline answer against detected options.
+        correct_answer = self._normalise_answer(inline_answer, options, q_type)
+
         return ParsedQuestion(
-            question_number=q_number,
+            question_number=segment.get("question_number", fallback_number),
             question_text=question_text,
             question_type=q_type,
             options=options,
+            correct_answer=correct_answer,
             marks=marks,
-            page_number=segment.get('page'),
-            confidence=confidence
+            page_number=segment.get("page"),
+            confidence=self._confidence(question_text, options, q_type),
         )
-    
-    def _detect_question_type(self, text: str) -> DetectedQuestionType:
-        """Detect the type of question from its content"""
-        # Check for True/False
-        for pattern in self.compiled_tf_patterns:
-            if pattern.search(text):
-                return DetectedQuestionType.TRUE_FALSE
-        
-        # Check for Fill in blanks
-        for pattern in self.compiled_blank_patterns:
-            if pattern.search(text):
-                return DetectedQuestionType.FILL_BLANKS
-        
-        # Check for MCQ options
-        has_options = False
-        for pattern in self.compiled_option_patterns:
-            matches = pattern.findall(text)
-            if len(matches) >= 2:  # At least 2 options
-                has_options = True
-                break
-        
-        if has_options:
-            return DetectedQuestionType.MCQ
-        
-        # Check for essay/descriptive markers
-        essay_markers = ['discuss', 'explain', 'describe', 'analyze', 'evaluate', 'compare', 'elaborate']
-        text_lower = text.lower()
-        for marker in essay_markers:
-            if marker in text_lower:
-                return DetectedQuestionType.ESSAY
-        
-        return DetectedQuestionType.SHORT_ANSWER
-    
-    def _extract_question_and_options(self, lines: List[str]) -> Tuple[str, Dict[str, str]]:
-        """Extract question text and options from lines"""
-        question_lines = []
-        options = {}
-        current_option = None
-        current_option_text = []
-        
-        for line in lines:
-            line = line.strip()
+
+    # --------- Option splitting --------- #
+    @staticmethod
+    def _split_question_and_options(
+        lines: List[str],
+    ) -> Tuple[str, Dict[str, str]]:
+        """
+        Handles three layouts:
+          * options on separate lines
+          * all options on one line ("(A) x (B) y (C) z")
+          * mixed (question + first option on same line)
+        """
+        joined = "\n".join(lines).strip()
+
+        # Quick short-circuit: do we even have option markers?
+        has_markers = bool(_RE_OPTION_LINE.search(joined) or _RE_INLINE_OPTION.search(joined))
+        if not has_markers:
+            return re.sub(r"\s+", " ", joined).strip(), {}
+
+        # Walk lines one at a time. For each line, first see whether it
+        # has an inline option marker; if so, the text BEFORE the first
+        # marker belongs to the question / previous option, and each
+        # marker starts a new option until the next marker / EOL.
+        question_parts: List[str] = []
+        options: Dict[str, str] = {}
+        current_letter: Optional[str] = None
+        current_buffer: List[str] = []
+
+        def flush_current() -> None:
+            nonlocal current_letter, current_buffer
+            if current_letter is not None:
+                text = " ".join(current_buffer).strip()
+                text = re.sub(r"\s+", " ", text)
+                if text:
+                    options[current_letter.upper()] = text
+            current_letter = None
+            current_buffer = []
+
+        for raw_line in lines:
+            line = raw_line.strip()
             if not line:
                 continue
-            
-            # Check if this is an option line
-            option_match = None
-            for pattern in self.compiled_option_patterns:
-                match = pattern.match(line)
-                if match:
-                    option_match = match
-                    break
-            
-            if option_match:
-                # Save previous option if exists
-                if current_option:
-                    options[current_option.upper()] = ' '.join(current_option_text)
-                
-                current_option = option_match.group(1)
-                current_option_text = [option_match.group(2)]
-            elif current_option:
-                # Continue current option
-                current_option_text.append(line)
-            else:
-                # Part of question text
-                question_lines.append(line)
-        
-        # Save last option
-        if current_option:
-            options[current_option.upper()] = ' '.join(current_option_text)
-        
-        question_text = ' '.join(question_lines)
-        
-        # Clean question text - remove question number prefix
-        for pattern in self.compiled_question_patterns:
-            match = pattern.match(question_text)
-            if match and len(match.groups()) > 1:
-                question_text = match.group(2)
-                break
-        
-        return question_text.strip(), options
-    
-    def _extract_marks(self, text: str) -> Optional[int]:
-        """Extract marks/points from text"""
-        for pattern in self.compiled_marks_patterns:
-            match = pattern.search(text)
-            if match:
-                try:
-                    return int(match.group(1))
-                except ValueError:
-                    pass
-        return None
-    
-    def _calculate_confidence(self, question_text: str, options: Dict, q_type: DetectedQuestionType) -> float:
-        """Calculate confidence score for the parsed question"""
+
+            # Find every inline option marker in the line.
+            matches = list(_RE_INLINE_OPTION.finditer(line))
+            if not matches:
+                # No markers on this line - belongs to whatever we're building.
+                if current_letter is None:
+                    question_parts.append(line)
+                else:
+                    current_buffer.append(line)
+                continue
+
+            # Text before the first marker belongs to question / previous option.
+            first_start = matches[0].start()
+            leading = line[:first_start].strip()
+            if leading:
+                if current_letter is None:
+                    question_parts.append(leading)
+                else:
+                    current_buffer.append(leading)
+
+            # Iterate markers and split the remaining text accordingly.
+            for idx, m in enumerate(matches):
+                letter = m.group(1) or m.group(2)
+                seg_start = m.end()
+                seg_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(line)
+                seg_text = line[seg_start:seg_end].strip()
+
+                flush_current()
+                current_letter = letter
+                if seg_text:
+                    current_buffer.append(seg_text)
+
+        flush_current()
+
+        question_text = re.sub(r"\s+", " ", " ".join(question_parts)).strip()
+
+        # Sanity: MCQ needs >=2 options; otherwise treat all extracted "options"
+        # as part of the question (i.e. misdetection).
+        if len(options) < 2:
+            merged = question_text
+            for letter, val in options.items():
+                merged = f"{merged} ({letter}) {val}".strip()
+            return re.sub(r"\s+", " ", merged).strip(), {}
+
+        return question_text, options
+
+    # --------- Type detection --------- #
+    @staticmethod
+    def _detect_type(question_text: str, options: Dict[str, str]) -> DetectedQuestionType:
+        text = question_text.lower()
+
+        if len(options) >= 2:
+            if len(options) == 2:
+                vals = {v.lower().strip() for v in options.values()}
+                if vals <= {"true", "false", "t", "f"}:
+                    return DetectedQuestionType.TRUE_FALSE
+            return DetectedQuestionType.MCQ
+
+        if _RE_TRUE_FALSE.search(question_text):
+            return DetectedQuestionType.TRUE_FALSE
+        if _RE_BLANK.search(question_text):
+            return DetectedQuestionType.FILL_BLANKS
+
+        for kw in _ESSAY_KEYWORDS:
+            if kw in text:
+                return DetectedQuestionType.ESSAY
+
+        return DetectedQuestionType.SHORT_ANSWER
+
+    # --------- Answer normalisation --------- #
+    @staticmethod
+    def _normalise_answer(
+        raw: Optional[str],
+        options: Dict[str, str],
+        q_type: DetectedQuestionType,
+    ) -> Optional[str]:
+        if not raw:
+            return None
+        raw = raw.strip().rstrip(".").strip()
+
+        if q_type == DetectedQuestionType.MCQ and options:
+            # Accept forms: "B", "(B)", "Option B", "B - Paris"
+            m = re.match(r"^\(?([A-Ha-h])\)?\b", raw)
+            if m and m.group(1).upper() in options:
+                return m.group(1).upper()
+            # Match by option VALUE (case-insensitive)
+            for letter, val in options.items():
+                if val.strip().lower() == raw.lower():
+                    return letter
+            return raw
+        return raw
+
+    # --------- Answer-key merging --------- #
+    @staticmethod
+    def _apply_answer_key(
+        questions: List[ParsedQuestion], key: Dict[int, str]
+    ) -> None:
+        for q in questions:
+            if q.correct_answer:
+                continue
+            ans = key.get(q.question_number)
+            if not ans:
+                continue
+            q.correct_answer = QuestionParser._normalise_answer(
+                ans, q.options, q.question_type
+            )
+
+    # --------- Confidence score --------- #
+    @staticmethod
+    def _confidence(
+        question_text: str,
+        options: Dict[str, str],
+        q_type: DetectedQuestionType,
+    ) -> float:
         score = 0.0
-        
-        # Question text quality
-        if len(question_text) > 10:
+        if len(question_text) >= 15:
             score += 0.3
-        if question_text.endswith('?'):
-            score += 0.1
-        
-        # MCQ validation
+        if question_text.endswith("?"):
+            score += 0.15
+
         if q_type == DetectedQuestionType.MCQ:
             if len(options) >= 4:
                 score += 0.4
             elif len(options) >= 2:
                 score += 0.2
         else:
-            score += 0.3  # Non-MCQ types
-        
-        # General quality
-        if not re.search(r'[^\x00-\x7F]', question_text):  # ASCII only
+            score += 0.3
+
+        if not re.search(r"[^\x00-\x7F]", question_text):
             score += 0.1
-        
-        return min(score, 1.0)
-    
-    def parse_raw_text(self, raw_text: str, topic: str = "Extracted Questions") -> List[Dict]:
-        """
-        Convenience method to parse raw text and return question bank format.
-        
-        Args:
-            raw_text: Plain text content
-            topic: Topic name for categorization
-            
-        Returns:
-            List of question dicts ready for QuestionBankManager
-        """
-        # Create fake text blocks
-        text_blocks = [{'text': raw_text, 'page': 1}]
-        
-        parsed = self.parse(text_blocks)
-        
-        # Convert to question bank format
-        questions = []
-        for pq in parsed:
-            q = {
-                'question_text': pq.question_text,
-                'question_type': pq.question_type.value,
-                'topic': topic,
-                'points': pq.marks or 1,
-                'question_data': {
-                    'options': pq.options,
-                    'correct_answer': pq.correct_answer
-                },
-                'status': 'draft',
-                'confidence': pq.confidence
-            }
-            questions.append(q)
-        
-        return questions
+
+        return round(min(score, 1.0), 3)
+
+    # --------- Bank-dict conversion --------- #
+    @staticmethod
+    def _to_bank_dict(q: ParsedQuestion, topic: str) -> Dict:
+        return {
+            "question_text": q.question_text,
+            "question_type": q.question_type.value,
+            "topic": topic,
+            "points": q.marks or 1,
+            "status": "draft",
+            "question_data": {
+                "options": q.options,
+                "correct_answer": q.correct_answer,
+            },
+            "confidence": q.confidence,
+        }

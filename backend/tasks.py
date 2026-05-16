@@ -3,23 +3,22 @@ import logging
 from datetime import datetime
 from flask_socketio import SocketIO
 from backend.celery_app import celery
-from backend.models.cheat_detector import CheatDetector
+from backend.providers.cheat_detector_provider import get_cheat_detector
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
 from backend.db.database import DatabaseManager
 
-# Initialize dependencies
+# Initialize dependencies (Lightweight ones remain)
 redis_url = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 db_url = os.getenv('DATABASE_URL', 'sqlite:///exam_platform.db')
 
 socketio = SocketIO(message_queue=redis_url)
-cheat_detector = CheatDetector()
 db_manager = DatabaseManager(db_url)
 
-@celery.task
-def analyze_frame_task(session_id, frame_data, audio_data=None):
+@celery.task(bind=True, max_retries=3, default_retry_delay=5)
+def analyze_frame_task(self, session_id, frame_data, audio_data=None):
     """
     Background task to analyze frames using DeepFace.
     Emits results back to Flask-SocketIO via Redis.
@@ -31,11 +30,11 @@ def analyze_frame_task(session_id, frame_data, audio_data=None):
         
         # Analyze frame if present
         if frame_data:
-            analysis_result = cheat_detector.analyze_frame(frame_data, session_id=session_id)
+            analysis_result = get_cheat_detector().analyze_frame(frame_data, session_id=session_id)
         
         # Analyze audio if present
         if audio_data:
-            audio_result = cheat_detector.analyze_audio(audio_data, session_id=session_id)
+            audio_result = get_cheat_detector().analyze_audio(audio_data, session_id=session_id)
             
             # Merge results (prioritize high severity)
             if audio_result.get('suspicious'):
@@ -74,3 +73,10 @@ def analyze_frame_task(session_id, frame_data, audio_data=None):
             
     except Exception as e:
         logger.error(f"Error in analyze_frame_task: {e}")
+        # Point 8: Retry with exponential backoff for transient issues (e.g., Redis/DB locking)
+        try:
+            raise self.retry(exc=e)
+        except Exception:
+            # Fallback if retry limits exceeded or retry itself fails
+            logger.error("Max retries exceeded for analyze_frame_task")
+            pass

@@ -19,17 +19,17 @@ export default function LogIn() {
 
     try {
       const data = await loginUser({ username, password });
-  if (data.user.role !== "admin") {
-      throw new Error("Access denied. Admins only.");
-    }
+      if (data.user.role !== "admin") {
+        throw new Error("Access denied. Admins only.");
+      }
       saveAuth(data.token, data.user);
 
-        navigate("/AdminDashboard");
+      navigate("/admin/dashboard");
     } catch (err) {
-    setError(err.message || "Login failed");
-  } finally {
-    setLoading(false);
-  }
+      setError(err.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -91,4 +91,3 @@ export default function LogIn() {
     </div>
   );
 }
-

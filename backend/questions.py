@@ -3,47 +3,51 @@ import json
 import re
 import logging
 import uuid
+import time
 from typing import List, Dict, Optional
 
 from datetime import datetime
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.utils.rag_engine import RAGEngine
 from backend.utils.pdf_parser import PDFParser
 from backend.utils.docx_parser import DOCXParser
-from backend.utils.llm_client import LLMFactory
 
 
 logger = logging.getLogger(__name__)
 
 class QuestionGenerator:
-    """AI-Powered question generation system using Gemini with RAG grounding"""
+    """AI-Powered question generation system with RAG grounding"""
     
     def __init__(self, rag_store_path: str = "backend/db/rag_store"):
-        """Initialize Question Generator with RAG support"""
-        self.api_key = os.getenv("GEMINI_API_KEY")
+        """Initialize Question Generator using providers for internal heavy components"""
         self.model = None
         self.fallback_enabled = True
         
-        # Initialize RAG engine
         try:
-            self.rag_engine = RAGEngine(store_path=rag_store_path)
-            logger.info("RAG engine initialized successfully")
+            self._rag_engine_ref = None # Will be fetched via property
+            logger.info("QuestionGenerator initialization complete (Internal components will be lazy-loaded)")
         except Exception as e:
-            logger.error(f"Failed to initialize RAG engine: {e}")
-            self.rag_engine = None
+            logger.error(f"Failed to initialize QuestionGenerator structure: {e}")
         
-        # Initialize parsers
+        # Parsers are lightweight
         self.pdf_parser = PDFParser(chunk_size=500, overlap=50)
         self.docx_parser = DOCXParser(chunk_size=500, overlap=50)
+    
+    @property
+    def rag_engine(self):
+        """Getter for RAGEngine that uses the provider"""
+        from backend.providers.rag_provider import get_rag_engine
+        return get_rag_engine()
         
-        # Initialize LLM Client via Factory
-        self.llm_client = LLMFactory.create_client()
-        if self.llm_client:
-            logger.info(f"QuestionGenerator initialized with {self.llm_client.__class__.__name__}")
-        else:
-            logger.warning("No LLM client available. Questions will be generated using rule-based fallback only.")
+    @property
+    def llm_client(self):
+        """Getter for LLM client that uses the provider. Returns None if unavailable."""
+        from backend.providers.llm_provider import get_llm_client
+        try:
+            return get_llm_client()
+        except RuntimeError:
+            return None
     
     def process_document(self, file_path: str, doc_id: Optional[str] = None) -> Optional[str]:
         """
@@ -129,8 +133,14 @@ class QuestionGenerator:
             
             # Generate questions with AI
             if self.llm_client:
-                return self._generate_ai_questions(context, num_questions, difficulty, 
+                result = self._generate_ai_questions(context, num_questions, difficulty, 
                                                    topic, retrieved_chunks)
+                # If AI generation returned no questions (e.g. generate_content returned None),
+                # fall back to template-based generation
+                if not result and self.fallback_enabled:
+                    logger.warning("AI generation returned no questions, using fallback")
+                    return self._generate_fallback_questions(context, num_questions, difficulty)
+                return result
             elif self.fallback_enabled:
                 logger.warning("AI model not available, using fallback")
                 return self._generate_fallback_questions(context, num_questions, difficulty)
@@ -145,50 +155,88 @@ class QuestionGenerator:
             return []
     
     def _generate_ai_questions(self, content: str, count: int, difficulty: str,
-                              topic: str, retrieved_chunks: List[Dict]) -> List[Dict]:
-        """Generate questions using Gemini AI model with improved prompts"""
+                               topic: str, retrieved_chunks: List[Dict]) -> List[Dict]:
+        """Generate questions using AI model with improved prompts and batching"""
         
-        # Create grounding metadata
+        BATCH_SIZE = 5
+        all_validated_questions = []
+        
+        # Truncate content for token safety (reduce from 3000 to 2000)
+        safe_content = content[:2000]
+        
+        # Grounding info (same for all batches)
         grounding_info = ""
         chunk_ids = []
         if retrieved_chunks:
             grounding_info = "\n\nSOURCE CHUNKS (for grounding):\n"
             for i, chunk in enumerate(retrieved_chunks, 1):
-                grounding_info += f"\n[Chunk {i} - ID: {chunk['chunk_id']}]\n{chunk['text'][:200]}...\n"
+                # Truncate chunk text to reduce prompt size
+                grounding_info += f"\n[Chunk {i} - ID: {chunk['chunk_id']}]\n{chunk['text'][:150]}...\n"
                 chunk_ids.append(chunk['chunk_id'])
         
-        prompt = self._create_improved_prompt(content, count, difficulty, topic, grounding_info)
+        for batch_start in range(0, count, BATCH_SIZE):
+            batch_count = min(BATCH_SIZE, count - batch_start)
+            logger.info(f"Generating question batch {batch_start//BATCH_SIZE + 1} ({batch_count} questions)")
+            
+            prompt = self._create_improved_prompt(safe_content, batch_count, difficulty, topic, grounding_info)
+            
+            # Retry logic with exponential backoff
+            MAX_RETRIES = 3
+            batch_questions = []
+            
+            for attempt in range(MAX_RETRIES):
+                try:
+                    # Use specific LLM client
+                    response = self.llm_client.generate_content(prompt)
+                    
+                    if not response or not hasattr(response, 'text') or not response.text:
+                        raise Exception("Empty response from AI model")
+                    
+                    # Parse JSON response
+                    question_data = self._parse_ai_response(response.text)
+                    
+                    if not question_data or 'questions' not in question_data:
+                        raise Exception("Invalid response format from AI model")
+                    
+                    questions = question_data['questions']
+                    
+                    # Validate and enhance with metadata
+                    current_batch_validated = []
+                    for i, question in enumerate(questions[:batch_count]):
+                        validated_q = self._validate_and_enhance_question(
+                            question, len(all_validated_questions) + len(current_batch_validated) + 1, 
+                            chunk_ids, difficulty, topic
+                        )
+                        if validated_q:
+                            current_batch_validated.append(validated_q)
+                    
+                    if current_batch_validated:
+                        batch_questions = current_batch_validated
+                        break # Success on this batch
+                        
+                except Exception as e:
+                    error_str = str(e).lower()
+                    is_rate_limit = any(x in error_str for x in ["quota", "429", "resource_exhausted"])
+                    
+                    if is_rate_limit and attempt < MAX_RETRIES - 1:
+                        wait_time = 2 ** (attempt + 2) # 4s, 8s, 16s
+                        logger.warning(f"Batch generation rate limited, retrying in {wait_time}s... (Attempt {attempt+1}/{MAX_RETRIES})")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"AI question generation error in batch {batch_start//BATCH_SIZE + 1}: {e}")
+                        if attempt == MAX_RETRIES - 1:
+                            # If last attempt failed, break the retry loop
+                            break
+            
+            if batch_questions:
+                all_validated_questions.extend(batch_questions)
+            
+            # Additional cooldown between batches to respect RPM limits
+            if batch_start + BATCH_SIZE < count:
+                time.sleep(2)
         
-        try:
-            # Use specific LLM client
-            response = self.llm_client.generate_content(prompt)
-            
-            if not response or not hasattr(response, 'text') or not response.text:
-                raise Exception("Empty response from AI model")
-            
-            # Parse JSON response
-            question_data = self._parse_ai_response(response.text)
-            
-            if not question_data or 'questions' not in question_data:
-                raise Exception("Invalid response format from AI model")
-            
-            questions = question_data['questions']
-            
-            # Validate and enhance with metadata
-            validated_questions = []
-            for i, question in enumerate(questions[:count]):
-                validated_q = self._validate_and_enhance_question(
-                    question, i + 1, chunk_ids, difficulty, topic
-                )
-                if validated_q:
-                    validated_questions.append(validated_q)
-            
-            logger.info(f"Generated {len(validated_questions)} AI questions with metadata")
-            return validated_questions
-            
-        except Exception as e:
-            logger.error(f"AI question generation error: {e}")
-            raise
+        logger.info(f"Generated total of {len(all_validated_questions)} AI questions with metadata")
+        return all_validated_questions
     
     def _create_improved_prompt(self, content: str, count: int, difficulty: str,
                                topic: str, grounding_info: str) -> str:
@@ -200,8 +248,8 @@ class QuestionGenerator:
 
 {topic_instruction}
 
-CONTENT TO ANALYZE:
-{content[:3000]}
+CONTENT TO ANALYZE (STRICTLY USE ONLY THIS):
+{content[:2000]}
 
 {grounding_info}
 

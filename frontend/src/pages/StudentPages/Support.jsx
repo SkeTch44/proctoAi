@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
 import { getToken } from "../../utils/authStorage";
+import { API_BASE, getAuthHeader } from "../../utils/apiConfig";
 
 export default function Support() {
   const [activeCategory, setActiveCategory] = useState("faq");
@@ -21,8 +21,8 @@ export default function Support() {
   const fetchTickets = async () => {
     try {
       const token = getToken();
-      const res = await fetch("http://127.0.0.1:5000/api/support/tickets", {
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await fetch(`${API_BASE}/api/support/tickets`, {
+        headers: getAuthHeader()
       });
       if (res.ok) {
         const data = await res.json();
@@ -40,10 +40,10 @@ export default function Support() {
 
     try {
       const token = getToken();
-      const res = await fetch("http://127.0.0.1:5000/api/support/tickets", {
+      const res = await fetch(`${API_BASE}/api/support/tickets`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeader(),
           "Content-Type": "application/json"
         },
         body: JSON.stringify(ticketForm)

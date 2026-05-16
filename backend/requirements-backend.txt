@@ -1,8 +1,13 @@
 Flask
 Flask-SocketIO
 Flask-Cors
+Flask-Limiter
 Werkzeug
 PyJWT
+python-dotenv
+psycopg2-binary
+alembic
+SQLAlchemy
 google-generativeai
 google-api-python-client
 sentence-transformers
@@ -17,3 +22,10 @@ flasgger
 celery
 redis
 eventlet
+gevent
+gevent-websocket
+tensorflow
+deepface
+mediapipe
+mesa
+opencv-python

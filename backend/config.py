@@ -23,6 +23,9 @@ class Config:
     JWT_ALGORITHM = "HS256"
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=int(os.getenv("JWT_EXPIRES_HOURS", "24")))
 
+    if not DEBUG and JWT_SECRET_KEY == "jwt-secret-key":
+        raise ValueError("CRITICAL: JWT_SECRET_KEY not set in production environment!")
+
     # Database settings
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///exam_platform.db")
 
@@ -32,8 +35,7 @@ class Config:
     ALLOWED_EXTENSIONS = set(os.getenv("ALLOWED_EXTENSIONS", "pdf,docx").split(","))
 
     # CORS settings
-    # CORS settings
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
 
     # Proctoring thresholds
     SUSPICION_THRESHOLD = float(os.getenv("SUSPICION_THRESHOLD", "50"))
@@ -59,6 +61,10 @@ class Config:
     # Celery
     CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
     CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+
+    # MiniMax LLM
+    MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
+    MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-M1")
 
     # Local LLM (Ollama)
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")

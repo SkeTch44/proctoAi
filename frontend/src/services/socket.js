@@ -6,7 +6,10 @@ let connectionListeners = [];
 export function getSocket() {
   if (socket) return socket;
 
+  const token = localStorage.getItem('token');
+  
   socket = io('http://127.0.0.1:5000', {
+    auth: { token },
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 10,

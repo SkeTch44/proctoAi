@@ -1,8 +1,8 @@
 import json
 import logging
-import requests
+import re
 from typing import Dict, Any, Optional
-from backend.config import Config
+from backend.providers.llm_provider import get_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class LLMRunner:
     @staticmethod
     def run_batch(blueprint_prompt: Dict, batch_config: Dict, skill_metadata: Optional[Dict] = None) -> Optional[Any]:
         """
-        Executes the prompt against the configured LLM.
+        Executes the prompt against the configured LLM via the provider abstraction.
         
         Args:
             blueprint_prompt: Dict with 'system' and 'user' prompts
@@ -46,51 +46,40 @@ class LLMRunner:
             max_tokens = 2048
             skill_id = None
         
-        # Construct payload for Ollama
-        payload = {
-            "model": Config.OLLAMA_MODEL,
-            "prompt": "",  # Will be set below after size check
-            "stream": False,
-            "options": {
-                "temperature": temperature,  # Skill-specific or default
-                "num_predict": max_tokens,   # Skill-specific or default
-                "top_p": 0.9
-            },
-            "format": "json"  # Force Ollama JSON mode
-        }
-        
-        # [FIX] Limit prompt size to prevent Ollama crashes
+        # Construct prompt from blueprint
         full_prompt = f"{blueprint_prompt['system']}\n\n{blueprint_prompt['user']}"
-        MAX_PROMPT_CHARS = 8000  # ~2000 tokens for llama3.1
+        MAX_PROMPT_CHARS = 8000  # ~2000 tokens
         
         if len(full_prompt) > MAX_PROMPT_CHARS:
             logger.warning(f"Prompt too large ({len(full_prompt)} chars), truncating to {MAX_PROMPT_CHARS}")
             full_prompt = full_prompt[:MAX_PROMPT_CHARS] + "\n\n[Content truncated due to size]"
         
-        payload["prompt"] = full_prompt
+        # Obtain LLM client from provider
+        try:
+            client = get_llm_client()
+        except RuntimeError as e:
+            logger.error(f"LLMRunner: No LLM available for batch {batch_config['batch_id']}: {e}")
+            return None
         
         try:
-            # [UPSKILL] Log skill ID if available
+            # Log skill ID if available
             skill_log = f" (Skill: {skill_id})" if skill_id else ""
-            logger.info(f"LLMRunner: Calling Ollama for Batch {batch_config['batch_id']} ({fmt}){skill_log}...")
+            logger.info(f"LLMRunner: Calling LLM for Batch {batch_config['batch_id']} ({fmt}){skill_log}...")
             logger.debug(f"Prompt size: {len(full_prompt)} chars, Temperature: {temperature}")
             
-            response = requests.post(
-                f"{Config.OLLAMA_BASE_URL}/api/generate",
-                json=payload,
-                timeout=120  # Strict timeout enforced by Runner
+            response = client.generate_content(
+                full_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens
             )
             
-            # [FIX] Log detailed error before raising
-            if response.status_code != 200:
-                logger.error(f"Ollama returned {response.status_code}: {response.text[:500]}")
+            if response is None:
+                logger.error(f"LLMRunner: generate_content returned None for batch {batch_config['batch_id']}")
+                return None
             
-            response.raise_for_status()
+            raw_text = response.text
             
-            result = response.json()
-            raw_text = result.get('response', '')
-            
-            # Phase 4 Rule: Strict JSON return
+            # Strict JSON return
             try:
                 parsed_data = json.loads(raw_text)
                 logger.info(f"LLMRunner: Successfully parsed JSON for batch {batch_config['batch_id']}")
@@ -100,9 +89,6 @@ class LLMRunner:
                 logger.debug(f"Raw Output: {raw_text[:500]}")
                 return None
                 
-        except requests.exceptions.Timeout:
-            logger.error(f"LLMRunner: Timeout for batch {batch_config['batch_id']}")
-            return None
         except Exception as e:
             logger.error(f"LLMRunner: Critical Error for batch {batch_config['batch_id']}: {e}")
             return None
@@ -110,7 +96,7 @@ class LLMRunner:
     @staticmethod
     def execute(packet: "SkillPacket", context: str = "") -> Optional[Dict[str, Any]]:
         """
-        Execute a compiled SkillPacket against Ollama.
+        Execute a compiled SkillPacket against the active LLM provider.
         
         Args:
             packet: Compiled SkillPacket from SkillCompiler
@@ -121,11 +107,7 @@ class LLMRunner:
         """
         # Deferred import to avoid circular dependencies
         from backend.utils.skill_compiler import SkillPacket
-        import requests
-        import json
-        import re
-        from typing import Dict, Any, Optional
-
+        
         if not isinstance(packet, SkillPacket):
             logger.error(f"LLMRunner: Invalid packet type: {type(packet)}")
             return None
@@ -135,37 +117,29 @@ class LLMRunner:
         temperature = llm_params.get('temperature', 0.7)
         max_tokens = llm_params.get('max_tokens', 2048)
         
-        # Construct payload
-        payload = {
-            "model": Config.OLLAMA_MODEL,
-            "prompt": packet.system_prompt,  # Already substituted
-            "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-                "top_p": 0.9
-            },
-            "format": "json"
-        }
+        # Obtain LLM client from provider
+        try:
+            client = get_llm_client()
+        except RuntimeError as e:
+            logger.error(f"LLMRunner: No LLM available for skill {packet.skill_id}: {e}")
+            return None
         
         try:
             logger.info(f"LLMRunner: Executing Skill {packet.skill_id} ({packet.format_type})...")
             
-            response = requests.post(
-                f"{Config.OLLAMA_BASE_URL}/api/generate",
-                json=payload,
-                timeout=120
+            response = client.generate_content(
+                packet.system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens
             )
             
-            if response.status_code != 200:
-                logger.error(f"Ollama returned {response.status_code}: {response.text[:500]}")
+            if response is None:
+                logger.error(f"LLMRunner: generate_content returned None for skill {packet.skill_id}")
                 return None
-                
-            response.raise_for_status()
-            result = response.json()
-            raw_text = result.get('response', '')
             
-            # Use validation schema if we had a Validator, but for now just JSON parse
+            raw_text = response.text
+            
+            # JSON parse with regex fallback
             try:
                 parsed = json.loads(raw_text)
                 return parsed
@@ -175,7 +149,7 @@ class LLMRunner:
                 if json_match:
                     try:
                         return json.loads(json_match.group(0))
-                    except:
+                    except json.JSONDecodeError:
                         pass
                 logger.error(f"LLMRunner: Failed to parse JSON for skill {packet.skill_id}")
                 return None

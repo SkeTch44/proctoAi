@@ -3,7 +3,11 @@ Mesa StudentAgent - Behavioral Analysis Agent
 Each student gets one agent that tracks behavior over time
 """
 
-from mesa import Agent
+try:
+    from mesa import Agent
+except ImportError:
+    Agent = object
+
 from collections import deque
 from typing import Dict, Any, List, Set
 import time
@@ -41,7 +45,7 @@ class StudentAgent(Agent):
         
         # Memory systems
         self.short_term_memory = deque(maxlen=30)  # Last 30 events (~30s at 1 event/sec)
-        self.long_term_memory = []  # Entire session
+        self.long_term_memory = deque(maxlen=3600)  # Cap at ~1 hour of events
         
         # Tracking
         self.confidence_tracker = 1.0

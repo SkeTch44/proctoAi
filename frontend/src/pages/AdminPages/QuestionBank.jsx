@@ -53,7 +53,7 @@ export default function QuestionBank() {
                 )
             });
 
-            const response = await fetch(`${API_BASE}/api/question-bank/questions?${params}`, {
+            const response = await fetch(`${API_BASE}/api/questions?${params}`, {
                 headers: getAuthHeader()
             });
 
@@ -61,7 +61,7 @@ export default function QuestionBank() {
 
             const data = await response.json();
             setQuestions(data.questions || []);
-            setTotalPages(data.pages || 1);
+            setTotalPages(data.pagination?.total_pages || 1);
         } catch (err) {
             setError(err.message);
         } finally {

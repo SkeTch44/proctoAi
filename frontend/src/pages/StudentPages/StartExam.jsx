@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import PermissionModal from "../../components/PermissionModal";
 import { getToken } from "../../utils/authStorage";
+import { API_BASE, getAuthHeader } from "../../utils/apiConfig";
 
 const statusColors = {
   blue: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
@@ -47,6 +48,9 @@ export default function StartExam() {
   });
   const [checklistComplete, setChecklistComplete] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [examIdInput, setExamIdInput] = useState("");
+  const [sessionData, setSessionData] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   // Request permissions (triggers browser popup)
   const requestPermissions = async () => {
@@ -101,11 +105,11 @@ export default function StartExam() {
     const token = getToken();
     if (!token) throw new Error("No auth token");
 
-    const res = await fetch("http://127.0.0.1:5000/api/start_exam", {
+    const res = await fetch(`${API_BASE}/api/start_exam`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...getAuthHeader(),
       },
       body: JSON.stringify({ exam_id: examId }),
     });
@@ -117,68 +121,28 @@ export default function StartExam() {
     return data;
   };
 
-  const BeginButton = ({ exam }) => {
-    const [open, setOpen] = useState(false);
-    const [sessionId, setSessionId] = useState(null);
-    const [isStarting, setIsStarting] = useState(false);
-    const disabled =
-      exam.status !== "Ready" ||
-      !checklistComplete ||
-      !permissionsGranted.camera ||
-      !permissionsGranted.microphone;
+  const handleJoinExam = async () => {
+    if (!examIdInput.trim()) {
+      alert("Please enter a valid Exam ID");
+      return;
+    }
 
-    const handleClick = async () => {
-      if (disabled && !permissionsGranted.camera) {
-        requestPermissions();
-        return;
-      }
+    if (!checklistComplete || !permissionsGranted.camera || !permissionsGranted.microphone) {
+      alert("Please complete the checklist and grant all permissions first.");
+      if (!permissionsGranted.camera) requestPermissions();
+      return;
+    }
 
-      setIsStarting(true);
-      try {
-        const data = await startExam(exam.id);
-        setSessionId(data.session_id);
-        setOpen(true);
-      } catch (err) {
-        alert(err.message || "Failed to start exam");
-      } finally {
-        setIsStarting(false);
-      }
-    };
-
-    return (
-      <>
-        <button
-          disabled={disabled || isStarting}
-          onClick={handleClick}
-          className={`
-            mt-4 w-full py-3 px-6 rounded-2xl font-semibold text-sm shadow-lg transition-all duration-300 transform
-            ${disabled || isStarting
-              ? "bg-gray-400 cursor-not-allowed opacity-60 shadow-none"
-              : "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 hover:shadow-2xl hover:-translate-y-1 hover:scale-[1.02] text-white"
-            }
-          `}
-        >
-          {isStarting ? (
-            <span className="flex items-center gap-2">
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Starting Exam...
-            </span>
-          ) : (
-            "🚀 Begin Exam"
-          )}
-        </button>
-
-        <PermissionModal
-          open={open}
-          sessionId={sessionId}
-          onClose={() => {
-            setOpen(false);
-            if (sessionId) navigate(`/student/exam-room/${exam.id}`);
-          }}
-          permissions={permissionsGranted}
-        />
-      </>
-    );
+    setIsLoading(true);
+    try {
+      const data = await startExam(examIdInput.trim());
+      setSessionData(data);
+      setModalOpen(true);
+    } catch (err) {
+      alert(err.message || "Failed to start exam. Check the ID.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -262,17 +226,39 @@ export default function StartExam() {
           />
         </div>
       </section>
-      {/* Available Exams */}
+
+      {/* Join Exam Form */}
       <section className="p-8 bg-gradient-to-br from-indigo-50 via-blue-50 to-purple-50 dark:from-slate-900/50 dark:via-blue-900/20 dark:to-purple-900/20 rounded-3xl border border-indigo-200/50 dark:border-blue-500/30 shadow-2xl">
-        <h2 className="text-3xl font-bold mb-8 bg-gradient-to-r from-gray-800 to-slate-800 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400">
-          📚 Available Exams
+        <h2 className="text-3xl font-bold mb-6 bg-gradient-to-r from-gray-800 to-slate-800 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400">
+          🔑 Enter Exam ID
         </h2>
-        <div className="grid md:grid-cols-2 lg:grid-cols-1 gap-6">
-          {availableExams.map((exam) => (
-            <ExamCard key={exam.id} exam={exam} />
-          ))}
+        <div className="flex flex-col md:flex-row gap-4 max-w-2xl">
+          <input
+            type="text"
+            placeholder="e.g. 5e1b9b18-472c-493f..."
+            value={examIdInput}
+            onChange={(e) => setExamIdInput(e.target.value)}
+            className="flex-1 px-4 py-3 rounded-2xl border-2 border-indigo-200 dark:border-slate-600 bg-white/70 dark:bg-slate-800/80 focus:outline-none focus:border-indigo-500 text-lg transition-all"
+          />
+          <button
+            onClick={handleJoinExam}
+            disabled={isLoading || !examIdInput.trim() || !checklistComplete || !permissionsGranted.camera}
+            className="md:w-48 py-3 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold text-lg rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 disabled:cursor-not-allowed disabled:shadow-none whitespace-nowrap"
+          >
+            {isLoading ? "Starting..." : "🚀 Join Exam"}
+          </button>
         </div>
       </section>
+      
+      <PermissionModal
+        open={modalOpen}
+        sessionId={sessionData?.session_id}
+        onClose={() => {
+          setModalOpen(false);
+          if (sessionData) navigate(`/student/exam-room/${sessionData.exam_id}`);
+        }}
+        permissions={permissionsGranted}
+      />
     </div>
   );
 }

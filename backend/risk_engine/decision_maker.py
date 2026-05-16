@@ -85,8 +85,9 @@ class DecisionMaker:
         decision["state"] = state
         decision["risk_score"] = round(risk, 2)
         decision["student_id"] = agent.student_id
-        decision["explanation"] = agent.get_explanation()
-        decision["timestamp"] = agent.get_explanation()['timestamp']
+        explanation = agent.get_explanation()
+        decision["explanation"] = explanation
+        decision["timestamp"] = explanation['timestamp']
         
         return decision
     

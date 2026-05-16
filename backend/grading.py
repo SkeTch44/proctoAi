@@ -25,12 +25,8 @@ class GradingEngine:
      - Cheating detection (exact match, AI paraphrasing)
     """
     def __init__(self, model_name: str = 'all-MiniLM-L6-v2', rubric_path: Optional[str] = None):
-        try:
-            self.sim_model = SentenceTransformer(model_name)
-            logger.info(f"Loaded semantic model: {model_name}")
-        except Exception as e:    
-            logger.error(f"Failed to load semantic model: {e}")
-            self.sim_model = None
+        self._model_name = model_name
+        self._sim_model = None  # Lazy-loaded
         
         # Load grading rubric configuration
         if rubric_path is None:
@@ -43,6 +39,17 @@ class GradingEngine:
         except Exception as e:
             logger.warning(f"Failed to load rubric config: {e}. Using defaults.")
             self.rubric = self._get_default_rubric()
+            
+    @property
+    def sim_model(self):
+        """Lazy-load SentenceTransformer model on first use"""
+        if self._sim_model is None:
+            try:
+                logger.info(f"Lazy-loading semantic model: {self._model_name}")
+                self._sim_model = SentenceTransformer(self._model_name)
+            except Exception as e:
+                logger.error(f"Failed to load semantic model: {e}")
+        return self._sim_model
     
     def _get_default_rubric(self) -> Dict[str, Any]:
         """Fallback rubric if config file not found"""

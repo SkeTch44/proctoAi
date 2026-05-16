@@ -19,6 +19,9 @@ import time
 import math
 import threading
 
+# Add numpy import since it's used by the detectors
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 # ==========================================
@@ -32,12 +35,8 @@ except ImportError:
     cv2_available = False
     logger.warning("OpenCV not available")
 
-try:
-    import numpy as np
-    numpy_available = True
-except ImportError:
-    numpy_available = False
-    logger.warning("NumPy not available")
+# NumPy already imported above
+numpy_available = True
 
 try:
     from ultralytics import YOLO
@@ -67,7 +66,7 @@ except ImportError:
 
 # Mesa ABM
 try:
-    from backend.mesa_engine.behavior_model import MesaService
+    from backend.services.mesa_service import MesaService
     mesa_available = True
 except ImportError:
     mesa_available = False
@@ -107,8 +106,8 @@ class YOLODetector:
             try:
                 cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
                 self.face_cascade = cv2.CascadeClassifier(cascade_path)
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Non-critical error: {e}")
     
     def detect(self, frame: np.ndarray) -> Dict[str, Any]:
         """Run detection on frame"""
@@ -158,8 +157,8 @@ class YOLODetector:
                         'confidence': 0.8
                     })
                 result['face_count'] = len(result['faces'])
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Non-critical error: {e}")
         else:
             # Use person detections as face count approximation
             result['face_count'] = result['person_count']
@@ -189,8 +188,8 @@ class GazeEstimator:
                 self.eye_cascade = cv2.CascadeClassifier(
                     cv2.data.haarcascades + 'haarcascade_eye.xml'
                 )
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Non-critical error: {e}")
     
     def estimate(self, frame: np.ndarray) -> Dict[str, Any]:
         """Estimate gaze direction"""
@@ -290,8 +289,8 @@ class ScreenshotDetector:
                             result['recording_detected'] = True
                         else:
                             result['screenshot_detected'] = True
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Non-critical error: {e}")
         
         return result
     
@@ -597,18 +596,19 @@ class CheatDetector:
     
     def __init__(self, config: Optional[Dict] = None):
         self.config = config or {}
+        self._log_lock = threading.Lock()
         self.log_file = self.config.get('log_file', 'suspicion_log.json')
         
-        # Initialize detectors
-        self.yolo = YOLODetector()
-        self.gaze = GazeEstimator()
-        self.screenshot = ScreenshotDetector()
-        self.tab_detector = TabChangeDetector()
-        self.copy_detector = CopyPasteDetector()
-        self.audio = AudioAnalyzer()
-        self.system = SystemMonitor()
+        # Detectors are now lazy-loaded on first access
+        self._yolo = None
+        self._gaze = None
+        self._screenshot = None
+        self._tab_detector = None
+        self._copy_detector = None
+        self._audio = None
+        self._system = None
         
-        # Temporal & Certainty
+        # Temporal & Certainty (Lightweight)
         self.smoother = TemporalSmoother()
         self.certainty = CertaintyEngine()
         
@@ -616,11 +616,55 @@ class CheatDetector:
         self.mesa = None
         if mesa_available:
             try:
+                from backend.services.mesa_service import MesaService
                 self.mesa = MesaService()
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Non-critical Mesa error: {e}")
         
-        logger.info("CheatDetector initialized (MediaPipe-free)")
+        logger.info("[CheatDetector] Initialized in lazy mode.")
+
+    @property
+    def yolo(self):
+        if self._yolo is None:
+            logger.info("[CheatDetector] Lazy-loading YOLODetector...")
+            self._yolo = YOLODetector()
+        return self._yolo
+
+    @property
+    def gaze(self):
+        if self._gaze is None:
+            self._gaze = GazeEstimator()
+        return self._gaze
+
+    @property
+    def screenshot(self):
+        if self._screenshot is None:
+            self._screenshot = ScreenshotDetector()
+        return self._screenshot
+
+    @property
+    def tab_detector(self):
+        if self._tab_detector is None:
+            self._tab_detector = TabChangeDetector()
+        return self._tab_detector
+
+    @property
+    def copy_detector(self):
+        if self._copy_detector is None:
+            self._copy_detector = CopyPasteDetector()
+        return self._copy_detector
+
+    @property
+    def audio(self):
+        if self._audio is None:
+            self._audio = AudioAnalyzer()
+        return self._audio
+
+    @property
+    def system(self):
+        if self._system is None:
+            self._system = SystemMonitor()
+        return self._system
     
     def analyze_frame(self, frame_data: str, session_id: str = None) -> Dict[str, Any]:
         """Main frame analysis"""
@@ -708,8 +752,8 @@ class CheatDetector:
                         'type': 'FRAME', 'score': cert['score'],
                         'signals': signals, 'timestamp': time.time()
                     })
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Non-critical error: {e}")
             
             if result['suspicious'] and session_id:
                 self.log_alert(session_id, result)
@@ -740,8 +784,8 @@ class CheatDetector:
         if self.mesa:
             try:
                 self.mesa.process_event(session_id, {'type': 'TAB_SWITCH', 'timestamp': time.time()})
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Non-critical error: {e}")
         return result
     
     def handle_copy(self, session_id: str, content: str) -> Dict[str, Any]:
@@ -750,8 +794,8 @@ class CheatDetector:
         if self.mesa and result['suspicious']:
             try:
                 self.mesa.process_event(session_id, {'type': 'COPY', 'timestamp': time.time()})
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Non-critical error: {e}")
         return result
     
     def handle_paste(self, session_id: str, content: str) -> Dict[str, Any]:
@@ -760,8 +804,8 @@ class CheatDetector:
         if self.mesa and result['suspicious']:
             try:
                 self.mesa.process_event(session_id, {'type': 'PASTE', 'timestamp': time.time()})
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Non-critical error: {e}")
         return result
     
     def register_question(self, question_text: str):
@@ -782,23 +826,24 @@ class CheatDetector:
     
     def log_alert(self, session_id: str, result: Dict):
         try:
-            entry = {
-                'timestamp': datetime.utcnow().isoformat(),
-                'session_id': session_id,
-                'alert_type': result.get('alert_type'),
-                'score': result.get('suspicion_score'),
-                'confidence': result.get('confidence'),
-                'verdict': result.get('verdict')
-            }
-            
-            logs = []
-            if os.path.exists(self.log_file):
-                with open(self.log_file, 'r') as f:
-                    logs = json.load(f)
-            
-            logs.append(entry)
-            
-            with open(self.log_file, 'w') as f:
-                json.dump(logs[-100:], f, indent=2)
-        except:
-            pass
+            with self._log_lock:
+                entry = {
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'session_id': session_id,
+                    'alert_type': result.get('alert_type'),
+                    'score': result.get('suspicion_score'),
+                    'confidence': result.get('confidence'),
+                    'verdict': result.get('verdict')
+                }
+                
+                logs = []
+                if os.path.exists(self.log_file):
+                    with open(self.log_file, 'r') as f:
+                        logs = json.load(f)
+                
+                logs.append(entry)
+                
+                with open(self.log_file, 'w') as f:
+                    json.dump(logs[-100:], f, indent=2)
+        except Exception as e:
+            logger.debug(f"Non-critical error: {e}")

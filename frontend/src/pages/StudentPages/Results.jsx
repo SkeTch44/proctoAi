@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { getToken } from "../../utils/authStorage"; // Your auth utility
+import { API_BASE, getAuthHeader } from "../../utils/apiConfig";
 
 export default function Results() {
   const [results, setResults] = useState([]);
@@ -14,9 +15,9 @@ export default function Results() {
   const fetchResults = async () => {
     try {
       const token = getToken();
-      const res = await fetch("http://127.0.0.1:5000/api/student/results", {
+      const res = await fetch(`${API_BASE}/api/student/results`, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
       });

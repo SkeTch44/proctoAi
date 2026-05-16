@@ -1,0 +1,95 @@
+# ============================================================
+# Traefik dynamic routing — maps URL prefixes to services
+# ============================================================
+
+http:
+  routers:
+    auth:
+      rule: "PathPrefix(`/api/v1/auth`)"
+      service: auth-svc
+      entryPoints:
+        - web
+
+    exams:
+      rule: "PathPrefix(`/api/v1/exams`)"
+      service: exam-svc
+      entryPoints:
+        - web
+
+    questions:
+      rule: "PathPrefix(`/api/v1/questions`)"
+      service: question-svc
+      entryPoints:
+        - web
+
+    proctoring:
+      rule: "PathPrefix(`/api/v1/proctoring`)"
+      service: proctoring-svc
+      entryPoints:
+        - web
+
+    coding:
+      rule: "PathPrefix(`/api/v1/coding`)"
+      service: coding-svc
+      entryPoints:
+        - web
+
+    interviews:
+      rule: "PathPrefix(`/api/v1/interviews`)"
+      service: interview-svc
+      entryPoints:
+        - web
+
+    # Legacy monolith (catch-all during migration)
+    legacy:
+      rule: "PathPrefix(`/api`)"
+      service: legacy-backend
+      entryPoints:
+        - web
+      priority: 1  # lowest priority — only matches if no v1 route does
+
+  services:
+    auth-svc:
+      loadBalancer:
+        servers:
+          - url: "http://auth-svc:8001"
+
+    exam-svc:
+      loadBalancer:
+        servers:
+          - url: "http://exam-svc:8002"
+
+    question-svc:
+      loadBalancer:
+        servers:
+          - url: "http://question-svc:8003"
+
+    proctoring-svc:
+      loadBalancer:
+        servers:
+          - url: "http://proctoring-svc:8004"
+
+    coding-svc:
+      loadBalancer:
+        servers:
+          - url: "http://coding-svc:8005"
+
+    interview-svc:
+      loadBalancer:
+        servers:
+          - url: "http://interview-svc:8005"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
+
+    legacy-backend:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:5000"
+
+  middlewares:
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 200

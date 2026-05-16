@@ -17,7 +17,7 @@ class TimelineStore:
     Provides audit trail for human review
     """
     
-    def __init__(self, db_path: str = "risk_timeline.db"):
+    def __init__(self, db_path: str = "exam_platform.db"):
         """
         Initialize timeline store
         

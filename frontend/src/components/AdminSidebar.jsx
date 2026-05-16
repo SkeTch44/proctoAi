@@ -10,8 +10,12 @@ const navItems = [
   { label: "Document Upload", path: "documentUpload" },
   { label: "AI Question Generator", path: "analyzer" },
   { label: "Test creation", path: "test-creator" },
+  { label: "Coding Problems", path: "coding-problems" },
+  { label: "Coding Submissions", path: "coding-submissions" },
+  { label: "Interviews", path: "interviews" },
   { label: "Live monitoring", path: "admin-monitoring" },
   { label: "Proctoring Logs", path: "admin-logs" },
+  { label: "Code Review", path: "code-review" },
   { label: "Analytics", path: "admin-analytics" },
   { label: "Reports", path: "compiled-reports" },
 ];
@@ -79,7 +83,7 @@ export default function AdminSidebar() {
         {/* Nav */}
         <nav className="mt-4 px-2 flex-1 overflow-y-auto">
           <NavLink
-            to="/AdminDashboard"
+            to="/admin/dashboard"
             className="px-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-4 inline-block"
           >
             Admin panel

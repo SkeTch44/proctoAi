@@ -23,7 +23,7 @@ export default function LogIn() {
 
       // Role-based redirect
       if (data.user.role === "admin") {
-        navigate("/AdminDashboard");
+        navigate("/admin/dashboard");
       } else {
         navigate("/student/dashboard");
       }
